@@ -5,6 +5,10 @@ class Board(val size: Int = 9) {
     /** 0 = empty, otherwise colorIndex + 1 */
     val cells = IntArray(size * size)
 
+    /** Gem cells — a gem placed inside a piece lands on the board and is
+     *  collected (+coins) when its cell is cleared. Same indexing as cells. */
+    val gems = BooleanArray(size * size)
+
     fun at(r: Int, c: Int) = cells[r * size + c]
 
     fun isEmpty(r: Int, c: Int) = cells[r * size + c] == 0
@@ -111,7 +115,7 @@ class Board(val size: Int = 9) {
     }
 
     fun applyClear(indices: IntArray) {
-        for (i in indices) cells[i] = 0
+        for (i in indices) { cells[i] = 0; gems[i] = false }
     }
 
     fun clearArea(row: Int, col: Int, radius: Int): IntArray {
@@ -120,7 +124,7 @@ class Board(val size: Int = 9) {
             for (c in (col - radius)..(col + radius)) {
                 if (r in 0 until size && c in 0 until size) {
                     val i = r * size + c
-                    if (cells[i] != 0) { cells[i] = 0; removed.add(i) }
+                    if (cells[i] != 0) { cells[i] = 0; gems[i] = false; removed.add(i) }
                 }
             }
         }
@@ -136,6 +140,7 @@ class Board(val size: Int = 9) {
     fun copy(): Board {
         val b = Board(size)
         cells.copyInto(b.cells)
+        gems.copyInto(b.gems)
         return b
     }
 

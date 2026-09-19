@@ -145,4 +145,20 @@
     <string name="revive_preview">Clears the densest 3×3</string>
     <string name="notif_daily_title">Your daily is ready</string>
     <string name="notif_daily_body">Daily challenge + free coins are waiting!</string>
+    <!-- Power-ups -->
+    <string name="power_undo_name">Undo</string>
+    <string name="power_undo_desc">Rewind your last move. Hold to rewind several.</string>
+    <string name="power_rotate_name">Spin</string>
+    <string name="power_rotate_desc">Rotate a tray piece 90°. Tap it, then tap a piece.</string>
+    <string name="power_bomb_name">Blast</string>
+    <string name="power_bomb_desc">Clear a 3×3 area. Tap it, then tap the board.</string>
+    <string name="power_shuffle_name">Mix</string>
+    <string name="power_shuffle_desc">Swap your tray for three fresh pieces.</string>
+    <string name="power_hint_name">Hint</string>
+    <string name="power_hint_desc">Glows the best spot for your pieces.</string>
+    <string name="powers_title">Power-ups</string>
+    <string name="powers_hint">Fill the meter for FEVER RUSH ×2\nclear cells holding a gem for coins\nempty the board for a PERFECT CLEAR bonus</string>
+    <string name="got_it">Got it</string>
+    <string name="fever_banner">FEVER RUSH ×2</string>
+    <string name="perfect_banner">PERFECT CLEAR</string>
 </resources>

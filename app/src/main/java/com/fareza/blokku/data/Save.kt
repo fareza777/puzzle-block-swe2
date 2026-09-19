@@ -24,8 +24,10 @@ object Save {
     var musicOn get() = p.getBoolean("musicOn", true); set(v) = p.edit().putBoolean("musicOn", v).apply()
     var vibrationOn get() = p.getBoolean("vibrationOn", true); set(v) = p.edit().putBoolean("vibrationOn", v).apply()
     var colorblind get() = p.getBoolean("colorblind", false); set(v) = p.edit().putBoolean("colorblind", v).apply()
-    var language get() = p.getString("lang", "")!!; set(v) = p.edit().putString("lang", v).apply()
+    // default English; user can switch to Indonesian in Settings
+    var language get() = p.getString("lang", "en")!!; set(v) = p.edit().putString("lang", v).apply()
     var tutorialDone get() = p.getBoolean("tutDone", false); set(v) = p.edit().putBoolean("tutDone", v).apply()
+    var powersSeen get() = p.getBoolean("powersSeen", false); set(v) = p.edit().putBoolean("powersSeen", v).apply()
 
     // ---- economy ----
     var coins get() = p.getInt("coins", 120); set(v) = p.edit().putInt("coins", v).apply()

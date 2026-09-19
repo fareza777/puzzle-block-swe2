@@ -135,4 +135,20 @@
     <string name="revive_preview">Membersihkan area terpadat 3×3</string>
     <string name="notif_daily_title">Harian kamu siap</string>
     <string name="notif_daily_body">Tantangan harian + koin gratis menunggu!</string>
+    <!-- Power-ups -->
+    <string name="power_undo_name">Undo</string>
+    <string name="power_undo_desc">Batalkan langkah terakhir. Tahan untuk beberapa langkah.</string>
+    <string name="power_rotate_name">Putar</string>
+    <string name="power_rotate_desc">Putar balok 90°. Tap ikon, lalu tap baloknya.</string>
+    <string name="power_bomb_name">Ledak</string>
+    <string name="power_bomb_desc">Hapus area 3×3. Tap ikon, lalu tap papan.</string>
+    <string name="power_shuffle_name">Acak</string>
+    <string name="power_shuffle_desc">Ganti tiga balok di tray dengan yang baru.</string>
+    <string name="power_hint_name">Petunjuk</string>
+    <string name="power_hint_desc">Sorot posisi terbaik untuk balokmu.</string>
+    <string name="powers_title">Power-up</string>
+    <string name="powers_hint">Isi meter untuk FEVER RUSH ×2\nhapus sel bermata permata untuk koin\nkosongkan papan untuk bonus PERFECT CLEAR</string>
+    <string name="got_it">Mengerti</string>
+    <string name="fever_banner">FEVER RUSH ×2</string>
+    <string name="perfect_banner">PERFECT CLEAR</string>
 </resources>

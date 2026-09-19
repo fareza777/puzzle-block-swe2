@@ -52,6 +52,8 @@ class GameScene(
     private val powerKinds = arrayOf(PowerKind.UNDO, PowerKind.ROTATE, PowerKind.BOMB, PowerKind.SHUFFLE, PowerKind.HINT)
     private val powerGlyphs = arrayOf("undo", "rotate", "bomb", "shuffle", "hint")
     private val powerTints = intArrayOf(0xFF64B5F6.toInt(), 0xFF7BE495.toInt(), 0xFFFF8A65.toInt(), 0xFFBA8DF5.toInt(), 0xFFFFE066.toInt())
+    private val powerNameRes = intArrayOf(R.string.power_undo_name, R.string.power_rotate_name, R.string.power_bomb_name, R.string.power_shuffle_name, R.string.power_hint_name)
+    private val powerDescRes = intArrayOf(R.string.power_undo_desc, R.string.power_rotate_desc, R.string.power_bomb_desc, R.string.power_shuffle_desc, R.string.power_hint_desc)
 
     private var pauseBtn: UiIconButton? = null
 
@@ -111,6 +113,8 @@ class GameScene(
     private var trayPop = floatArrayOf(0f, 0f, 0f)
     private var comboBannerT = 0f
     private var comboBannerN = 0
+    private var feverBannerT = 0f
+    private var perfectBannerT = 0f
     private var meterFlash = 0f
     private var boardShake = 0f
     private var trayRects = arrayOfNulls<RectF>(3)
@@ -127,7 +131,7 @@ class GameScene(
     private var revived = false
     private var awardCoins = 0
 
-    enum class Overlay { NONE, PAUSE, GAMEOVER, LEVEL_COMPLETE, QUIT_CONFIRM }
+    enum class Overlay { NONE, PAUSE, GAMEOVER, LEVEL_COMPLETE, QUIT_CONFIRM, POWERS }
 
     class ClearFx(val cellsWithColor: IntArray, var age: Float = 0f) // packed idx | color<<16
     {
@@ -145,6 +149,10 @@ class GameScene(
         refreshDanger()
         if (!Save.tutorialDone) {
             scene().push(TutorialScene())
+        } else if (engine.mode == Mode.CLASSIC && !Save.powersSeen) {
+            Save.powersSeen = true
+            overlay = Overlay.POWERS
+            overlayAnim.reset()
         }
     }
 
@@ -181,7 +189,7 @@ class GameScene(
         }
 
         trayCell = cell * 0.62f
-        trayY = powerY + powerSize + D.dp(12f)
+        trayY = powerY + powerSize + D.dp(20f)
 
         meterRect = RectF(w / 2f - D.dp(76f), hudTop + D.dp(52f), w / 2f + D.dp(76f), hudTop + D.dp(64f))
         coinPill = null
@@ -201,6 +209,13 @@ class GameScene(
         comboBannerT = (comboBannerT - dt).coerceAtLeast(0f)
         meterFlash = (meterFlash - dt).coerceAtLeast(0f)
         boardShake = (boardShake - dt * 2.4f).coerceAtLeast(0f)
+        feverBannerT = (feverBannerT - dt).coerceAtLeast(0f)
+        perfectBannerT = (perfectBannerT - dt).coerceAtLeast(0f)
+        if (engine.feverT > 0f) {
+            engine.feverT -= dt
+            if (engine.feverT < 0f) engine.feverT = 0f
+            host.wake()
+        }
 
         val it = cellAnim.entries.iterator()
         while (it.hasNext()) {
@@ -295,6 +310,7 @@ class GameScene(
             comboBannerT > 0 || meterFlash > 0 || boardShake > 0 ||
             dragIndex >= 0 || retPiece != null || gameOverDelay > 0 || overlayAnim.let { !it.done && overlay != Overlay.NONE } ||
             enterAnim.t < enterAnim.duration || trayPop.any { it < 1f } ||
+            feverBannerT > 0 || perfectBannerT > 0 || engine.feverT > 0 ||
             hintT > 0 || dangerPulse > 0 || undoHeld ||
             (engine.timeLimitSec > 0 && overlay == Overlay.NONE && !engine.gameOver) ||
             (overlay == Overlay.LEVEL_COMPLETE && starAnimT < 2f)
@@ -379,8 +395,8 @@ class GameScene(
         for (b in overlayButtons) {
             if (b.contains(x, y)) { b.pressT = 1f; b.tap(); return }
         }
-        // click outside quit/pause dialog dismisses
-        if (overlay == Overlay.PAUSE && !dialogRect.contains(x, y)) { overlay = Overlay.NONE }
+        // click outside quit/pause/powers dialog dismisses
+        if ((overlay == Overlay.PAUSE || overlay == Overlay.POWERS) && !dialogRect.contains(x, y)) { overlay = Overlay.NONE }
     }
 
     /** Drop whatever is being dragged at the current snap position. */
@@ -475,6 +491,20 @@ class GameScene(
             if (res.meterFull) {
                 meterFlash = 1f
                 grantNeededPowerUp()
+                feverBannerT = 1.4f
+                Audio.play("win", 1.2f)
+            }
+            if (res.gemsCollected > 0) {
+                val coins = res.gemsCollected * 10
+                Save.coins += coins
+                addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.24f, "+$coins", 0xFFFFD75E.toInt(), D.sp(22f))
+                Audio.play("coin")
+            }
+            if (res.perfectClear) {
+                perfectBannerT = 1.6f
+                Audio.play("clear3", 1.1f)
+                Haptic.big()
+                particles.burst(boardRect.centerX(), boardRect.centerY(), 0xFFFFD75E.toInt(), count = 40, speed = D.dp(320f), size = D.dp(10f), life = 0.9f, gravity = D.dp(300f))
             }
         } else {
             Audio.playVaried("place")
@@ -694,8 +724,19 @@ class GameScene(
             )
         }
         particles.ring(boardRect.left + (cIdx + 0.5f) * cell, boardRect.top + (r + 0.5f) * cell, D.color(theme.accent))
+        creditGems(boardRect.left + (cIdx + 0.5f) * cell, boardRect.top + (r + 0.5f) * cell)
         Missions.track(MissionType.USE_POWERUPS, 1)
         afterMove()
+    }
+
+    /** Coins for gems destroyed by blast/revive. */
+    private fun creditGems(x: Float, y: Float) {
+        if (engine.lastGemsCollected > 0) {
+            val coins = engine.lastGemsCollected * 10
+            Save.coins += coins
+            addFloat(x, y - D.dp(30f), "+$coins", 0xFFFFD75E.toInt(), D.sp(20f))
+            Audio.play("coin")
+        }
     }
 
     /** Meter-full grant: the power-up with the lowest stock + a coin drip. */
@@ -743,6 +784,7 @@ class GameScene(
         renderDrag(c)
         c.restore()
         renderComboBanner(c)
+        renderBigBanner(c)
         if (overlay != Overlay.NONE) renderOverlay(c)
         renderFx(c) // floats/particles on top of the dim so celebrations read
     }
@@ -803,6 +845,29 @@ class GameScene(
             D.gradientRect(c, mr.left + 3, mr.top + 3, fr, mr.bottom - 3, c1, c2, mr.height() / 2)
         }
         if (meterFlash > 0) D.glowCircle(c, mr.centerX(), mr.centerY(), D.dp(60f) * meterFlash, D.color(theme.accent), (120 * meterFlash).toInt())
+        // Fever Rush active — meter pill becomes a ×2 countdown chip
+        if (engine.feverT > 0f) {
+            val fp = 0.7f + 0.3f * kotlin.math.sin(host.globalTime * 10f)
+            val fcol = 0xFFFFB300.toInt()
+            D.gradientRect(c, mr.left, mr.top, mr.right, mr.bottom, D.withAlpha(fcol, (235 * fp).toInt()), D.withAlpha(D.darken(fcol, 0.2f), (255 * fp).toInt()), mr.height() / 2)
+            D.text(c, "×2 ${engine.feverT.toInt() + 1}", mr.centerX(), mr.centerY() + D.sp(4.5f), D.sp(11f), Color.WHITE)
+        }
+    }
+
+    /** Small spark diamond marking a gem cell. */
+    private fun drawGem(c: Canvas, cx: Float, cy: Float, r: Float) {
+        val tw = 0.75f + 0.25f * kotlin.math.sin(host.globalTime * 6f)
+        val col = 0xFF7DF9FF.toInt()
+        val p = android.graphics.Path()
+        p.moveTo(cx, cy - r); p.lineTo(cx + r, cy); p.lineTo(cx, cy + r); p.lineTo(cx - r, cy); p.close()
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        paint.color = D.withAlpha(col, (235 * tw).toInt())
+        c.drawPath(p, paint)
+        paint.color = D.withAlpha(Color.WHITE, (200 * tw).toInt())
+        val ir = r * 0.4f
+        val ip = android.graphics.Path()
+        ip.moveTo(cx, cy - ir); ip.lineTo(cx + ir, cy); ip.lineTo(cx, cy + ir); ip.lineTo(cx - ir, cy); ip.close()
+        c.drawPath(ip, paint)
     }
 
     private fun goalLabel(): String = when (engine.goal.type) {
@@ -890,6 +955,7 @@ class GameScene(
                     scale = Ease.outBack(k)
                 }
                 drawCell(c, l, t, scale, cellColor(v), v)
+                if (engine.board.gems[idx]) drawGem(c, l + cell * 0.43f, t + cell * 0.43f, cell * 0.26f)
             }
         }
 
@@ -920,6 +986,11 @@ class GameScene(
                 val t = boardRect.top + cr * cell + cell * 0.07f
                 drawCell(c, l, t, sc, cellColor(colr), colr, alpha)
             }
+        }
+        // fever tint — warm glow pulses over the board while Fever Rush runs
+        if (engine.feverT > 0f) {
+            val fp = 0.5f + 0.5f * kotlin.math.sin(host.globalTime * 9f)
+            D.rectStroke(c, boardRect.left - D.dp(7f), boardRect.top - D.dp(7f), boardRect.right + D.dp(7f), boardRect.bottom + D.dp(7f), D.withAlpha(0xFFFFB300.toInt(), (140 * fp).toInt()), D.dp(3f), D.dp(20f))
         }
         // danger vignette — board edge breathes red when almost nothing fits
         if (fitsRemaining <= 4 && fitsRemaining >= 0 && overlay == Overlay.NONE) {
@@ -975,6 +1046,8 @@ class GameScene(
             D.circle(c, r.right - D.dp(6f), r.top + D.dp(6f), D.dp(10f), D.withAlpha(Color.BLACK, 90))
             D.circle(c, r.right - D.dp(6f), r.top + D.dp(6f), D.dp(8.5f), badgeCol)
             D.text(c, "$count", r.right - D.dp(6f), r.top + D.dp(6f) + D.sp(9f) * 0.36f, D.sp(9f), Color.WHITE)
+            // name label under the button
+            D.labelText(c, s(powerNameRes[i]), r.centerX(), r.bottom + D.dp(10.5f), D.sp(8f), D.withAlpha(D.color(theme.textPrimary), if (usable) 200 else 110), spacing = 0.1f)
         }
     }
 
@@ -1006,6 +1079,7 @@ class GameScene(
                 val l = cx - pieceW / 2 + pcc * trayCell * popK + trayCell * 0.05f * popK
                 val t = cy - pieceH / 2 + pr * trayCell * popK + trayCell * 0.05f * popK
                 D.blockCell(c, l, t, l + trayCell * 0.9f * popK, t + trayCell * 0.9f * popK, cellColor(p.colorIndex + 1), trayCell * 0.2f, alpha)
+                if (pc == engine.trayGem[i]) drawGem(c, l + trayCell * 0.45f * popK, t + trayCell * 0.45f * popK, trayCell * 0.24f)
             }
             if (rotateArmed && fitsAny) {
                 D.rectStroke(c, slotRect.left, slotRect.top, slotRect.right, slotRect.bottom, D.color(theme.accent), D.dp(2f), D.dp(14f))
@@ -1053,6 +1127,7 @@ class GameScene(
             val l = l0 + pcx * cur + cur * 0.05f
             val t = t0 + pr * cur + cur * 0.05f
             D.blockCell(c, l, t, l + cur * 0.9f, t + cur * 0.9f, cellColor(p.colorIndex + 1), cur * 0.2f)
+            if (pc == engine.trayGem[dragIndex]) drawGem(c, l + cur * 0.45f, t + cur * 0.45f, cur * 0.24f)
         }
     }
 
@@ -1066,6 +1141,27 @@ class GameScene(
             val l = retX + pcx * cur + cur * 0.05f
             val t = retY + pr * cur + cur * 0.05f
             D.blockCell(c, l, t, l + cur * 0.9f, t + cur * 0.9f, cellColor(p.colorIndex + 1), cur * 0.2f, alpha = (230 * (1f - k * 0.3f)).toInt())
+        }
+    }
+
+    /** Fever Rush + Perfect Clear celebrations — big centered banners. */
+    private fun renderBigBanner(c: Canvas) {
+        val w = host.width.toFloat()
+        if (feverBannerT > 0f) {
+            val appear = ((1.4f - feverBannerT) / 0.25f).coerceIn(0f, 1f)
+            val alpha = (feverBannerT / 0.4f).coerceIn(0f, 1f)
+            c.save()
+            c.scale(Ease.outBack(appear), Ease.outBack(appear), w / 2f, boardRect.top + boardRect.height() * 0.3f)
+            D.text(c, s(R.string.fever_banner), w / 2f, boardRect.top + boardRect.height() * 0.3f, D.sp(30f), 0xFFFFB300.toInt(), alpha = (255 * alpha).toInt())
+            c.restore()
+        }
+        if (perfectBannerT > 0f) {
+            val appear = ((1.6f - perfectBannerT) / 0.3f).coerceIn(0f, 1f)
+            val alpha = (perfectBannerT / 0.45f).coerceIn(0f, 1f)
+            c.save()
+            c.scale(Ease.outBack(appear), Ease.outBack(appear), w / 2f, boardRect.top + boardRect.height() * 0.56f)
+            D.text(c, s(R.string.perfect_banner), w / 2f, boardRect.top + boardRect.height() * 0.56f, D.sp(30f), 0xFFFFD75E.toInt(), alpha = (255 * alpha).toInt())
+            c.restore()
         }
     }
 
@@ -1099,6 +1195,7 @@ class GameScene(
         val dh = when (overlay) {
             Overlay.GAMEOVER -> D.dp(368f)
             Overlay.LEVEL_COMPLETE -> D.dp(320f)
+            Overlay.POWERS -> D.dp(396f)
             else -> D.dp(240f)
         }
         val dl = (w - dw) / 2f
@@ -1117,6 +1214,7 @@ class GameScene(
             Overlay.GAMEOVER -> renderGameOverOverlay(c)
             Overlay.LEVEL_COMPLETE -> renderLevelCompleteOverlay(c)
             Overlay.QUIT_CONFIRM -> renderQuitOverlay(c)
+            Overlay.POWERS -> renderPowersOverlay(c)
             Overlay.NONE -> {}
         }
         for (b in overlayButtons) b.render(c)
@@ -1149,8 +1247,35 @@ class GameScene(
             restart(); Audio.play("click")
         }
         by += D.dp(60f)
-        overlayBtn(bx, by, bx + bw, by + D.dp(50f), s(R.string.quit), D.lighten(D.color(theme.boardBg), 0.12f)) {
+        overlayBtn(bx, by, bx + bw * 0.62f, by + D.dp(50f), s(R.string.quit), D.lighten(D.color(theme.boardBg), 0.12f)) {
             overlay = Overlay.QUIT_CONFIRM; overlayAnim.reset()
+        }
+        val qw = D.dp(50f)
+        overlayBtn(bx + bw - qw, by, bx + bw, by + D.dp(50f), "?", D.lighten(D.color(theme.boardBg), 0.2f)) {
+            overlay = Overlay.POWERS; overlayAnim.reset(); Audio.play("click")
+        }
+    }
+
+    private fun renderPowersOverlay(c: Canvas) {
+        overlayTitle(c, s(R.string.powers_title), dialogRect.top + D.dp(40f), D.sp(20f))
+        var ry = dialogRect.top + D.dp(62f)
+        for (i in 0..4) {
+            val tint = powerTints[i]
+            val cx = dialogRect.left + D.dp(40f)
+            val chipR = D.dp(15f)
+            D.circle(c, cx, ry + chipR, chipR, D.withAlpha(tint, 46))
+            Glyph.draw(c, powerGlyphs[i], RectF(cx - chipR * 0.66f, ry + chipR - chipR * 0.66f, cx + chipR * 0.66f, ry + chipR + chipR * 0.66f), tint)
+            D.labelText(c, s(powerNameRes[i]), cx + chipR + D.dp(10f), ry + D.sp(11f), D.sp(10.5f), tint, align = Paint.Align.LEFT)
+            D.text(c, s(powerDescRes[i]), cx + chipR + D.dp(10f), ry + D.sp(11f) + D.sp(13f), D.sp(11.5f), D.withAlpha(D.color(theme.textPrimary), 200), align = Paint.Align.LEFT, bold = false)
+            ry += D.dp(44f)
+        }
+        var hy = ry + D.dp(4f)
+        for (line in s(R.string.powers_hint).split('\n')) {
+            D.text(c, line, dialogRect.centerX(), hy, D.sp(9.8f), D.withAlpha(D.color(theme.textPrimary), 150), bold = false)
+            hy += D.dp(15f)
+        }
+        overlayBtn(dialogRect.left + D.dp(24f), dialogRect.bottom - D.dp(56f), dialogRect.right - D.dp(24f), dialogRect.bottom - D.dp(12f), s(R.string.got_it), D.color(theme.accent)) {
+            overlay = Overlay.NONE; Audio.play("click")
         }
     }
 
@@ -1312,6 +1437,7 @@ class GameScene(
             )
         }
         particles.ring(boardRect.centerX(), boardRect.centerY(), D.color(theme.accent))
+        creditGems(boardRect.centerX(), boardRect.centerY())
     }
 
     private fun boardIndexAt(x: Float, y: Float): Int {

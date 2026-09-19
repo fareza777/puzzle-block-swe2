@@ -230,4 +230,81 @@ class EngineTest {
         open.tray[0] = single(); open.tray[1] = null; open.tray[2] = null
         assertTrue(open.bestMove() != null)
     }
+
+    @Test
+    fun `meter full starts fever and fever doubles score`() {
+        val engine = GameEngine(Board(9), Random(1))
+        // push meter near full
+        while (engine.meter < 88) {
+            // clear one row repeatedly to charge the meter (12+ per clear)
+            for (c in 0 until 8) engine.board.cells[c] = 1
+            engine.tray[0] = single(); engine.tray[1] = null; engine.tray[2] = null
+            engine.place(0, 0, 8)
+            if (engine.feverT > 0f) break
+        }
+        assertTrue(engine.feverT > 0f)
+        // during fever a clear is doubled
+        for (c in 0 until 8) engine.board.cells[9 + c] = 1
+        engine.tray[0] = single(); engine.tray[1] = null; engine.tray[2] = null
+        val res = engine.place(0, 1, 8)
+        assertTrue(res.lines == 1)
+        // non-fever gained for same setup was ~ (2 + 90 + 40) — fever doubles it
+        assertTrue(res.gained >= (132 * 2))
+    }
+
+    @Test
+    fun `gem in tray piece lands on board and pays out on clear`() {
+        val engine = GameEngine(Board(9), Random(1))
+        for (c in 0 until 8) engine.board.cells[c] = 1
+        engine.tray[0] = single(); engine.tray[1] = null; engine.tray[2] = null
+        engine.trayGem[0] = 0 // gem on the single's only cell
+        val res = engine.place(0, 0, 8)
+        assertEquals(1, res.gemsCollected)
+        assertFalse(engine.board.gems[8]) // cleared away
+    }
+
+    @Test
+    fun `gem cell survives on board until cleared`() {
+        val engine = GameEngine(Board(9), Random(1))
+        engine.tray[0] = single(); engine.tray[1] = null; engine.tray[2] = null
+        engine.trayGem[0] = 0
+        engine.place(0, 4, 4)
+        assertTrue(engine.board.gems[4 * 9 + 4])
+        // undo restores tray gem, removes board gem
+        assertTrue(engine.undo())
+        assertFalse(engine.board.gems[4 * 9 + 4])
+        assertEquals(0, engine.trayGem[0])
+    }
+
+    @Test
+    fun `perfect clear bonus when board empties`() {
+        val engine = GameEngine(Board(9), Random(1))
+        for (c in 0 until 8) engine.board.cells[c] = 1
+        engine.tray[0] = single(); engine.tray[1] = null; engine.tray[2] = null
+        val res = engine.place(0, 0, 8)
+        assertTrue(res.perfectClear)
+        assertEquals(0, engine.board.filledCount())
+        // and no perfect flag when cells remain
+        val e2 = GameEngine(Board(9), Random(1))
+        for (c in 0 until 8) e2.board.cells[c] = 1
+        e2.board.cells[80] = 1 // leftover elsewhere
+        e2.tray[0] = single(); e2.tray[1] = null; e2.tray[2] = null
+        assertFalse(e2.place(0, 0, 8).perfectClear)
+    }
+
+    @Test
+    fun `serialization round-trips gems`() {
+        val engine = GameEngine(Board(9), Random(7))
+        engine.tray[0] = single(3); engine.tray[1] = null; engine.tray[2] = line9h()
+        engine.trayGem[0] = 0; engine.trayGem[2] = 5
+        engine.board.cells[0] = 2; engine.board.gems[0] = true
+        val back = GameEngine.fromJson(engine.toJson())!!
+        assertTrue(back.board.gems[0])
+        assertEquals(0, back.trayGem[0])
+        assertEquals(5, back.trayGem[2])
+        assertEquals(-1, back.trayGem[1])
+        // old-format saves (no gem fields) still load
+        val oldJson = engine.toJson().split(';').take(19).joinToString(";")
+        assertTrue(GameEngine.fromJson(oldJson) != null)
+    }
 }

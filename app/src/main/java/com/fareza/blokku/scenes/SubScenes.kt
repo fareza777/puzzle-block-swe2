@@ -516,15 +516,13 @@ class SettingsScene : BaseScene() {
 
     private fun langLabel(): String = when (Save.language) {
         "in" -> "Indonesia"
-        "en" -> "English"
-        else -> s(R.string.lang_system)
+        else -> "English"
     }
 
     private fun cycleLang() {
         val next = when (Save.language) {
-            "" -> "en"
             "en" -> "in"
-            else -> ""
+            else -> "en"
         }
         Save.language = next
         Audio.play("click")

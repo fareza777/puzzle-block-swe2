@@ -25,6 +25,7 @@ object Audio {
     private var musicMode = 0 // 0=menu, 1=game
     private var menuVol = 0f
     private var gameVol = 0f
+    private var appPaused = false
     private const val MUSIC_VOL = 0.34f
 
     private val sfxMap = mapOf(
@@ -108,14 +109,14 @@ object Audio {
 
     /** Called each frame from GameView — smooth volume crossfade between tracks. */
     fun update(dt: Float) {
-        val targetMenu = if (Save.musicOn && musicMode == 0) MUSIC_VOL else 0f
-        val targetGame = if (Save.musicOn && musicMode == 1) MUSIC_VOL else 0f
+        val targetMenu = if (Save.musicOn && !appPaused && musicMode == 0) MUSIC_VOL else 0f
+        val targetGame = if (Save.musicOn && !appPaused && musicMode == 1) MUSIC_VOL else 0f
         menuVol += (targetMenu - menuVol) * min(1f, dt * 4f)
         gameVol += (targetGame - gameVol) * min(1f, dt * 4f)
         try {
             musicMenu?.setVolume(menuVol, menuVol)
             musicGame?.setVolume(gameVol, gameVol)
-            if (Save.musicOn) {
+            if (Save.musicOn && !appPaused) {
                 if (menuVol > 0.01f && musicMenu?.isPlaying == false) musicMenu?.start()
                 if (gameVol > 0.01f && musicGame?.isPlaying == false) musicGame?.start()
                 if (menuVol < 0.005f && musicMenu?.isPlaying == true) musicMenu?.pause()
@@ -125,11 +126,15 @@ object Audio {
     }
 
     fun onAppPause() {
+        appPaused = true
         musicWasPlaying = (musicMenu?.isPlaying == true) || (musicGame?.isPlaying == true)
         stopMusic()
+        try { pool?.autoPause() } catch (e: Exception) {}
     }
 
     fun onAppResume() {
+        appPaused = false
+        try { pool?.autoResume() } catch (e: Exception) {}
         if (musicWasPlaying && Save.musicOn) startMusic()
     }
 }
