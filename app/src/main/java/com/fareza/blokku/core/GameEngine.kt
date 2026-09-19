@@ -2,11 +2,20 @@ package com.fareza.blokku.core
 
 import kotlin.random.Random
 
-enum class GoalType { NONE, SCORE, LINES, CELLS }
+enum class GoalType { NONE, SCORE, LINES, CELLS, STONES }
 
 class Goal(val type: GoalType, val target: Int)
 
-enum class Mode { CLASSIC, LEVEL, DAILY }
+enum class Mode { CLASSIC, LEVEL, DAILY, ZEN, RUSH, PUZZLE }
+
+/** A short in-run objective (classic/zen): e.g. clear 2 lines within 4 placements. */
+class Contract(
+    val type: Int,        // 0 lines-in-moves, 1 reach-combo, 2 detonate-bomb, 3 snug-fits
+    val target: Int,
+    var prog: Int,
+    var movesLeft: Int,
+    val reward: Int,
+)
 
 data class LevelDef(
     val index: Int,
@@ -29,6 +38,12 @@ class PlaceResult(
     /** Extra cells removed by bomb detonations (subset of clearCells' neighbors). */
     val boomCells: IntArray = IntArray(0),
     val bombsDetonated: Int = 0,
+    /** Lines cleared that were a single color (MONO bonus). */
+    val monoLines: Int = 0,
+    /** Piece landed snug — every cell touched a filled neighbour or the rim. */
+    val snug: Boolean = false,
+    /** A ×3 cell was inside a cleared line — score for the clear was tripled. */
+    val multHit: Boolean = false,
 )
 
 /**
@@ -77,6 +92,38 @@ class GameEngine(
     val trayGem = intArrayOf(-1, -1, -1)
     /** Bomb embedded in tray slot i — packed piece-local cell (r*16+c), -1 = none. */
     val trayBomb = intArrayOf(-1, -1, -1)
+    /** ×3 cell embedded in tray slot i — same packing. */
+    val trayMult = intArrayOf(-1, -1, -1)
+
+    // ---- next-tray preview ----
+    /** The three pieces that will refill the tray when it empties. */
+    val nextTray = arrayOfNulls<Piece>(3)
+    val nextGem = intArrayOf(-1, -1, -1)
+    val nextBomb = intArrayOf(-1, -1, -1)
+    val nextMult = intArrayOf(-1, -1, -1)
+
+    // ---- hold slot ----
+    var holdPiece: Piece? = null
+        private set
+    var holdGem = -1; var holdBomb = -1; var holdMult = -1
+    /** Tetris rule: one hold per placement. */
+    var holdLocked = false
+        private set
+
+    // ---- combo grace ----
+    /** Free non-clearing placements left before the combo drops. */
+    var comboGrace = 0
+        private set
+
+    // ---- contracts (classic/zen micro-objectives) ----
+    var contract: Contract? = null
+        private set
+    /** Score at which the next contract is offered. */
+    var nextContractAt = 400
+        private set
+    /** Set when the active contract just completed — UI pays out + toasts. */
+    var contractJustDone: Contract? = null
+    var contractJustFailed = false
     /** Gems collected by the last destructive op (blast/revive), for coin award. */
     var lastGemsCollected = 0
         private set
@@ -87,6 +134,7 @@ class GameEngine(
 
     init {
         refillTray()
+        refillNext()
     }
 
     class Snapshot(
@@ -107,6 +155,15 @@ class GameEngine(
         val trayGem: IntArray,
         val bombs: BooleanArray,
         val trayBomb: IntArray,
+        val mults: BooleanArray,
+        val trayMult: IntArray,
+        val stones: BooleanArray,
+        val holdPiece: Piece?,
+        val holdGem: Int,
+        val holdBomb: Int,
+        val holdMult: Int,
+        val holdLocked: Boolean,
+        val comboGrace: Int,
     )
 
     private fun snapshot(): Snapshot {
@@ -116,10 +173,16 @@ class GameEngine(
         board.gems.copyInto(g)
         val b = BooleanArray(board.bombs.size)
         board.bombs.copyInto(b)
+        val m = BooleanArray(board.mults.size)
+        board.mults.copyInto(m)
+        val st = BooleanArray(board.stones.size)
+        board.stones.copyInto(st)
         return Snapshot(
             c, tray.copyOf(), score, combo, streak, bestCombo,
             linesCleared, cellsPlaced, meter, movesLeft, gameOver, goalMet, goalFailed,
             g, trayGem.copyOf(), b, trayBomb.copyOf(),
+            m, trayMult.copyOf(), st,
+            holdPiece, holdGem, holdBomb, holdMult, holdLocked, comboGrace,
         )
     }
 
@@ -133,6 +196,12 @@ class GameEngine(
         s.trayGem.copyInto(trayGem)
         s.bombs.copyInto(board.bombs)
         s.trayBomb.copyInto(trayBomb)
+        s.mults.copyInto(board.mults)
+        s.trayMult.copyInto(trayMult)
+        s.stones.copyInto(board.stones)
+        holdPiece = s.holdPiece; holdGem = s.holdGem; holdBomb = s.holdBomb; holdMult = s.holdMult
+        holdLocked = s.holdLocked
+        comboGrace = s.comboGrace
     }
 
     val canUndo get() = undoStack.isNotEmpty()
@@ -144,7 +213,16 @@ class GameEngine(
     }
 
     fun refillTray() {
+        // full refill consumes the previewed next-tray so the preview is honest
+        for (i in 0..2) {
+            if (tray[i] == null && nextTray[i] != null) {
+                tray[i] = nextTray[i]; nextTray[i] = null
+                trayGem[i] = nextGem[i]; trayBomb[i] = nextBomb[i]; trayMult[i] = nextMult[i]
+                nextGem[i] = -1; nextBomb[i] = -1; nextMult[i] = -1
+            }
+        }
         for (i in 0..2) if (tray[i] == null) { tray[i] = nextPiece(); rollSpecial(i) }
+        if (trayEmpty()) refillNext() else if (nextTray.all { it == null }) refillNext()
         // fairness: if nothing fits, keep re-rolling (bounded) so death feels earned, not cheap
         var tries = 0
         while (!anyTrayFit() && tries < 30) {
@@ -152,6 +230,27 @@ class GameEngine(
                 tray[i] = nextPiece(); rollSpecial(i)
             }
             tries++
+        }
+    }
+
+    /** Generates the upcoming tray shown in the NEXT preview strip. */
+    private fun refillNext() {
+        for (i in 0..2) if (nextTray[i] == null) {
+            nextTray[i] = nextPiece()
+            val p = nextTray[i]!!
+            nextGem[i] = if (rng.nextFloat() < gemChance) p.cells[rng.nextInt(p.cells.size)] else -1
+            nextBomb[i] = if (rng.nextFloat() < 0.13f) {
+                var pick = p.cells[rng.nextInt(p.cells.size)]
+                var tries = 0
+                while (pick == nextGem[i] && tries++ < 4) pick = p.cells[rng.nextInt(p.cells.size)]
+                pick
+            } else -1
+            nextMult[i] = if (rng.nextFloat() < 0.07f) {
+                var pick = p.cells[rng.nextInt(p.cells.size)]
+                var tries = 0
+                while ((pick == nextGem[i] || pick == nextBomb[i]) && tries++ < 4) pick = p.cells[rng.nextInt(p.cells.size)]
+                pick
+            } else -1
         }
     }
 
@@ -167,6 +266,12 @@ class GameEngine(
             while (pick == trayGem[i] && tries++ < 4) pick = p.cells[rng.nextInt(p.cells.size)]
             pick
         } else -1
+        trayMult[i] = if (p != null && rng.nextFloat() < 0.07f) {
+            var pick = p.cells[rng.nextInt(p.cells.size)]
+            var tries = 0
+            while ((pick == trayGem[i] || pick == trayBomb[i]) && tries++ < 4) pick = p.cells[rng.nextInt(p.cells.size)]
+            pick
+        } else -1
     }
 
     private fun nextPiece(): Piece = Shapes.randomPiece(rng, colorCount, bigBias)
@@ -180,10 +285,31 @@ class GameEngine(
         }
     }
 
-    /** Timed levels: called when the countdown hits zero. */
+    /** Timed levels + Rush mode: called when the countdown hits zero. */
     fun onTimeExpired() {
         if (gameOver || goalMet) return
+        if (mode == Mode.RUSH) { gameOver = true; return }
         if (goal.type != GoalType.NONE) { goalFailed = true; gameOver = true }
+    }
+
+    /**
+     * Hold slot — park tray[i] for later; the held piece comes back in exchange.
+     * One hold per placement (resets inside place()).
+     */
+    fun hold(i: Int): Boolean {
+        if (holdLocked || gameOver) return false
+        val p = tray[i] ?: return false
+        undoStack.addLast(snapshot())
+        val prev = holdPiece
+        holdPiece = p
+        val g = holdGem; val b = holdBomb; val m = holdMult
+        holdGem = trayGem[i]; holdBomb = trayBomb[i]; holdMult = trayMult[i]
+        tray[i] = prev
+        trayGem[i] = g; trayBomb[i] = b; trayMult[i] = m
+        holdLocked = true
+        // holding the last playable piece leaves an empty tray — refill so play continues
+        if (trayEmpty()) refillTray()
+        return true
     }
 
     /** Hint power-up: best (slot,row,col) move across the tray, or null. */
@@ -237,17 +363,36 @@ class GameEngine(
         undoStack.addLast(snapshot())
         if (undoStack.size > 20) undoStack.removeFirst()
 
+        holdLocked = false // a placed piece unlocks the hold slot again
+
         board.place(p, row, col)
-        // gem/bomb inside the piece land on the board
+        // special cells embedded in the piece land on the board
         val g = trayGem[i]
         if (g >= 0) board.gems[(row + (g shr 4)) * board.size + col + (g and 15)] = true
         trayGem[i] = -1
         val bb = trayBomb[i]
         if (bb >= 0) board.bombs[(row + (bb shr 4)) * board.size + col + (bb and 15)] = true
         trayBomb[i] = -1
+        val mm = trayMult[i]
+        if (mm >= 0) board.mults[(row + (mm shr 4)) * board.size + col + (mm and 15)] = true
+        trayMult[i] = -1
         tray[i] = null
         cellsPlaced += p.size
         if (movesLeft > 0) movesLeft--
+
+        // SNUG — every cell of the piece touches a filled neighbour or the rim
+        var snug = true
+        outer@ for (pc in p.cells) {
+            val pr = row + (pc shr 4); val pcx = col + (pc and 15)
+            var contact = pr == 0 || pr == board.size - 1 || pcx == 0 || pcx == board.size - 1
+            if (!contact) {
+                if (pr > 0 && board.cells[(pr - 1) * board.size + pcx] != 0) contact = true
+                if (pr < board.size - 1 && board.cells[(pr + 1) * board.size + pcx] != 0) contact = true
+                if (pcx > 0 && board.cells[pr * board.size + pcx - 1] != 0) contact = true
+                if (pcx < board.size - 1 && board.cells[pr * board.size + pcx + 1] != 0) contact = true
+            }
+            if (!contact) { snug = false; break@outer }
+        }
 
         val res = boardPostClears()
 
@@ -257,8 +402,30 @@ class GameEngine(
         var perfect = false
         var boom = IntArray(0)
         var bombsN = 0
+        var monoLines = 0
+        var multHit = false
         if (!res.isEmpty) {
             for (cc in res.clearCells) if (board.gems[cc]) gems++
+            // MONO — a cleared line of a single colour scores +150% extra
+            val pre = board.cells.copyOf()
+            for (lr in res.rows) {
+                var v = -1; var same = true
+                for (cc in 0 until board.size) {
+                    val x = pre[lr * board.size + cc]
+                    if (v < 0) v = x else if (x != v) { same = false; break }
+                }
+                if (same) monoLines++
+            }
+            for (lc in res.cols) {
+                var v = -1; var same = true
+                for (rr in 0 until board.size) {
+                    val x = pre[rr * board.size + lc]
+                    if (v < 0) v = x else if (x != v) { same = false; break }
+                }
+                if (same) monoLines++
+            }
+            // ×3 cells inside the clear triple its score
+            for (cc in res.clearCells) if (board.mults[cc]) { multHit = true; break }
             // bombs caught in cleared lines detonate 3x3 and can chain
             boomGems = 0
             val det = detonate(res.clearCells)
@@ -268,21 +435,30 @@ class GameEngine(
             linesCleared += n
             combo++
             streak++
+            comboGrace = 1 // one free pass before the chain drops
             if (combo > bestCombo) bestCombo = combo
             gained += (res.clearCells.size + boom.size) * 10 + n * n * 40 + bombsN * 60
+            gained += (gained * (0.5f * monoLines)).toInt()
+            if (multHit) gained *= 3
             gained = (gained * (1f + 0.5f * (combo - 1))).toInt()
             // PERFECT CLEAR — emptied the whole board
             if (board.filledCount() == 0) { perfect = true; gained += 400 + combo * 100 }
             if (feverT > 0f) gained *= 2
             meter += n * 12 + (if (combo > 1) 8 * combo else 0) + bombsN * 10
+            if (mode == Mode.RUSH) meter += n * 10 // fever charges ~2x in Rush
             if (meter >= 100) { meter -= 100; meterFullNow = true; feverT = 8f }
         } else {
-            if (combo > 0) combo = 0
+            // combo grace: the chain survives one non-clearing placement, then drops
+            if (combo > 0) {
+                if (comboGrace > 0) comboGrace-- else combo = 0
+            }
             streak = 0
             meter += 2
         }
+        if (snug) gained += 25 + p.size * 5
         lastGemsCollected = gems
         score += gained
+        tickContract(res.lineCount, bombsN, snug)
 
         // classic difficulty ramp: bigger pieces weigh more over time and a
         // 7th color joins once the player is in flow
@@ -293,7 +469,46 @@ class GameEngine(
 
         if (trayEmpty()) refillTray()
         evaluateEnd()
-        return PlaceResult(true, res.clearCells, res.lineCount, gained, combo, meterFullNow, gems, perfect, boom, bombsN)
+        return PlaceResult(true, res.clearCells, res.lineCount, gained, combo, meterFullNow, gems, perfect, boom, bombsN, monoLines, snug, multHit)
+    }
+
+    // ---------- micro-contracts (classic & zen) ----------
+
+    private fun tickContract(lines: Int, bombsN: Int, snug: Boolean) {
+        if (mode != Mode.CLASSIC && mode != Mode.ZEN) return
+        val c = contract
+        if (c == null) {
+            if (score >= nextContractAt) {
+                contract = rollContract()
+                nextContractAt = score + 350 + rng.nextInt(200)
+            }
+            return
+        }
+        when (c.type) {
+            0 -> c.prog += lines
+            1 -> if (combo > c.prog) c.prog = combo
+            2 -> c.prog += bombsN
+            3 -> if (snug) c.prog++
+        }
+        c.movesLeft--
+        if (c.prog >= c.target) {
+            contractJustDone = c
+            contract = null
+        } else if (c.movesLeft <= 0) {
+            contract = null
+            contractJustFailed = true
+        }
+    }
+
+    private fun rollContract(): Contract {
+        val kind = rng.nextInt(4)
+        val r = rng.nextInt(3)
+        return when (kind) {
+            0 -> Contract(0, 2 + r, 0, 5 + r, 40 + r * 20)          // N lines within M placements
+            1 -> Contract(1, 3 + r, 0, 6, 50 + r * 30)               // reach combo N
+            2 -> Contract(2, 1 + r / 2, 0, 8, 60 + r * 20)           // detonate N bombs
+            else -> Contract(3, 2 + r, 0, 8, 45 + r * 25)            // snug N fits
+        }
     }
 
     private fun boardPostClears(): Board.ClearResult {
@@ -423,10 +638,23 @@ class GameEngine(
 
     private fun evaluateEnd() {
         if (gameOver) return
+        if (mode == Mode.ZEN) {
+            // never game over: nothing fits → gently clear the lowest row and reroll dead pieces
+            if (!anyTrayFit()) {
+                var guard = 0
+                zenRelief()
+                while (!anyTrayFit() && guard++ < 30) {
+                    for (i in 0..2) if (tray[i] != null && !board.anyFit(tray[i]!!)) { tray[i] = nextPiece(); rollSpecial(i) }
+                    if (board.filledCount() == 0 && !anyTrayFit()) break
+                }
+            }
+            return
+        }
         when (goal.type) {
             GoalType.SCORE -> if (score >= goal.target) goalMet = true
             GoalType.LINES -> if (linesCleared >= goal.target) goalMet = true
             GoalType.CELLS -> if (cellsPlaced >= goal.target) goalMet = true
+            GoalType.STONES -> if (board.stoneCount() == 0) goalMet = true
             GoalType.NONE -> {}
         }
         if (goalMet) return
@@ -434,10 +662,31 @@ class GameEngine(
         if (!anyTrayFit()) gameOver = true
     }
 
+    /** Counts how many times Zen auto-relief fired (UI shows a notice). */
+    var zenReliefCount = 0
+        private set
+
+    /** Zen relief: fade the lowest occupied row so the board never jams. */
+    private fun zenRelief() {
+        zenReliefCount++
+        var lowest = -1
+        for (r in board.size - 1 downTo 0) {
+            var any = false
+            for (c in 0 until board.size) if (board.cells[r * board.size + c] != 0) { any = true; break }
+            if (any) { lowest = r; break }
+        }
+        if (lowest < 0) return
+        for (c in 0 until board.size) {
+            val i = lowest * board.size + c
+            board.cells[i] = 0; board.gems[i] = false; board.bombs[i] = false; board.mults[i] = false
+        }
+    }
+
     fun goalProgress(): Int = when (goal.type) {
         GoalType.SCORE -> score
         GoalType.LINES -> linesCleared
         GoalType.CELLS -> cellsPlaced
+        GoalType.STONES -> goal.target - board.stoneCount()
         GoalType.NONE -> 0
     }
 
@@ -478,6 +727,25 @@ class GameEngine(
         for (i in 0..2) { if (i > 0) sb.append(','); sb.append(trayBomb[i]) }
         sb.append(';')
         sb.append(gemChance).append(';').append(dailyModifier)
+        // v7 tail: hold piece (or empty);holdGem;holdBomb;holdMult;holdLocked;comboGrace;
+        //   contract (type;target;prog;moves;reward or empty);stones csv;mults csv;trayMult
+        val hp = holdPiece
+        if (hp != null) {
+            sb.append(';').append(hp.colorIndex).append(':')
+            for (j in hp.cells.indices) { if (j > 0) sb.append('.'); sb.append(hp.cells[j]) }
+        } else sb.append(';')
+        sb.append(';').append(holdGem).append(';').append(holdBomb).append(';').append(holdMult)
+            .append(';').append(if (holdLocked) 1 else 0).append(';').append(comboGrace)
+        val c = contract
+        if (c != null) sb.append(';').append(c.type).append(',').append(c.target).append(',')
+            .append(c.prog).append(',').append(c.movesLeft).append(',').append(c.reward)
+        else sb.append(';')
+        sb.append(';')
+        for (i in board.stones.indices) { if (i > 0) sb.append(','); sb.append(if (board.stones[i]) 1 else 0) }
+        sb.append(';')
+        for (i in board.mults.indices) { if (i > 0) sb.append(','); sb.append(if (board.mults[i]) 1 else 0) }
+        sb.append(';')
+        for (i in 0..2) { if (i > 0) sb.append(','); sb.append(trayMult[i]) }
         return sb.toString()
     }
 
@@ -504,6 +772,22 @@ class GameEngine(
 
         fun daily(seed: Long, goal: Goal, moves: Int) =
             GameEngine(Board(9), Random(seed), Mode.DAILY, goal, moves)
+
+        fun zen(rng: Random = Random.Default) =
+            GameEngine(Board(9), rng, Mode.ZEN, Goal(GoalType.NONE, 0), -1)
+
+        fun rush(rng: Random = Random.Default): GameEngine {
+            val e = GameEngine(Board(9), rng, Mode.RUSH, Goal(GoalType.NONE, 0), -1, bigBias = 0.6f)
+            e.timeLimitSec = 90
+            return e
+        }
+
+        fun puzzle(def: LevelDef): GameEngine {
+            val e = GameEngine(Board(9), Random(def.seed), Mode.PUZZLE, def.goal, def.moveLimit)
+            Puzzles.seedBoard(e, def.index)
+            e.ensureTrayFits()
+            return e
+        }
 
         fun fromJson(json: String): GameEngine? {
             return try {
@@ -555,7 +839,38 @@ class GameEngine(
                 }
                 i++
                 if (i < f.size) e.gemChance = f[i++].toFloatOrNull() ?: 0.2f
-                if (i < f.size) e.dailyModifier = f[i].toIntOrNull() ?: 0
+                if (i < f.size) e.dailyModifier = f[i++].toIntOrNull() ?: 0
+                // v7 tail — hold piece, specials, grace, contract, stones, mults
+                if (i < f.size) {
+                    val hs = f[i++]
+                    if (hs.isNotEmpty()) {
+                        e.holdPiece = Piece(hs.substringAfter(':').split('.').map { it.toInt() }.toIntArray(), hs.substringBefore(':').toInt())
+                    }
+                }
+                if (i < f.size) e.holdGem = f[i++].toIntOrNull() ?: -1
+                if (i < f.size) e.holdBomb = f[i++].toIntOrNull() ?: -1
+                if (i < f.size) e.holdMult = f[i++].toIntOrNull() ?: -1
+                if (i < f.size) e.holdLocked = f[i++] == "1"
+                if (i < f.size) e.comboGrace = f[i++].toIntOrNull() ?: 0
+                if (i < f.size) {
+                    val cs = f[i++]
+                    if (cs.isNotEmpty()) {
+                        val cp = cs.split(',')
+                        if (cp.size == 5) e.contract = Contract(cp[0].toInt(), cp[1].toInt(), cp[2].toInt(), cp[3].toInt(), cp[4].toInt())
+                    }
+                }
+                if (i < f.size) {
+                    val sc = f[i++].split(',')
+                    if (sc.size == e.board.stones.size) for (k in sc.indices) e.board.stones[k] = sc[k] == "1"
+                }
+                if (i < f.size) {
+                    val mc = f[i++].split(',')
+                    if (mc.size == e.board.mults.size) for (k in mc.indices) e.board.mults[k] = mc[k] == "1"
+                }
+                if (i < f.size) {
+                    val tm = f[i].split(',')
+                    for (k in 0..2) e.trayMult[k] = tm.getOrNull(k)?.toIntOrNull() ?: -1
+                }
                 e
             } catch (ex: Exception) { null }
         }

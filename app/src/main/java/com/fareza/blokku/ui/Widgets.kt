@@ -455,6 +455,53 @@ object Glyph {
                 D.rect(c, cx - s * 0.09f, cy + s * 0.1f, cx + s * 0.09f, cy + s * 0.45f, color, 0f)
                 D.rect(c, cx - s * 0.36f, cy + s * 0.45f, cx + s * 0.36f, cy + s * 0.62f, color, s * 0.06f)
             }
+            "hold" -> { // parked piece slot — box with a downward chevron
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.STROKE
+                D.p.strokeWidth = s * 0.16f
+                D.p.strokeCap = android.graphics.Paint.Cap.ROUND
+                c.drawRoundRect(RectF(cx - s * 0.68f, cy - s * 0.5f, cx + s * 0.68f, cy + s * 0.55f), s * 0.16f, s * 0.16f, D.p)
+                c.drawLine(cx - s * 0.3f, cy - s * 0.14f, cx, cy + s * 0.18f, D.p)
+                c.drawLine(cx, cy + s * 0.18f, cx + s * 0.3f, cy - s * 0.14f, D.p)
+                D.p.style = android.graphics.Paint.Style.FILL
+                D.p.strokeCap = android.graphics.Paint.Cap.BUTT
+            }
+            "target" -> { // contract chip — concentric rings + dot
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.STROKE
+                D.p.strokeWidth = s * 0.13f
+                c.drawCircle(cx, cy, s * 0.62f, D.p)
+                c.drawCircle(cx, cy, s * 0.36f, D.p)
+                D.p.style = android.graphics.Paint.Style.FILL
+                c.drawCircle(cx, cy, s * 0.14f, D.p)
+            }
+            "zen" -> { // lotus-ish calm mark — ring + petal arc
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.STROKE
+                D.p.strokeWidth = s * 0.13f
+                c.drawCircle(cx, cy, s * 0.66f, D.p)
+                c.drawArc(RectF(cx - s * 0.4f, cy - s * 0.42f, cx + s * 0.4f, cy + s * 0.42f), -30f, 240f, false, D.p)
+                D.p.style = android.graphics.Paint.Style.FILL
+            }
+            "rush" -> { // lightning bolt
+                val p = android.graphics.Path()
+                p.moveTo(cx + s * 0.18f, cy - s * 0.72f)
+                p.lineTo(cx - s * 0.4f, cy + s * 0.12f)
+                p.lineTo(cx - s * 0.04f, cy + s * 0.12f)
+                p.lineTo(cx - s * 0.18f, cy + s * 0.72f)
+                p.lineTo(cx + s * 0.4f, cy - s * 0.1f)
+                p.lineTo(cx + s * 0.02f, cy - s * 0.1f)
+                p.close()
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.FILL
+                c.drawPath(p, D.p)
+            }
+            "puzzle" -> { // jigsaw piece silhouette
+                D.p.color = color
+                c.drawRoundRect(RectF(cx - s * 0.6f, cy - s * 0.45f, cx + s * 0.6f, cy + s * 0.6f), s * 0.14f, s * 0.14f, D.p)
+                c.drawCircle(cx, cy - s * 0.52f, s * 0.2f, D.p)
+                c.drawCircle(cx + s * 0.66f, cy + s * 0.08f, s * 0.2f, D.p)
+            }
         }
     }
 }

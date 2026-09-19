@@ -134,6 +134,104 @@ class LevelSelectScene : BaseScene() {
     }
 }
 
+// ============================ PUZZLE SELECT ============================
+
+class PuzzleSelectScene : BaseScene() {
+    private var scrollY = 0f
+    private var maxScroll = 0f
+    private var dragStart = 0f
+    private var scrollStart = 0f
+    private var dragging = false
+    private var moved = false
+    private val cellRects = ArrayList<Pair<RectF, Int>>()
+
+    override fun onEnter() { makeBackButton() }
+
+    override fun render(c: Canvas) {
+        renderBackground(c)
+        renderTopBar(c, s(R.string.puzzle_select))
+        val w = host.width.toFloat()
+        val cols = 5
+        val gap = D.dp(10f)
+        val cellW = (w - D.dp(40f) - gap * (cols - 1)) / cols
+        val top = host.safeTop + D.dp(64f)
+        val unlocked = Save.maxUnlockedPuzzle() + 1
+
+        cellRects.clear()
+        c.save()
+        c.clipRect(0f, top - D.dp(8f), w, host.height.toFloat() - D.dp(12f))
+        c.translate(0f, scrollY)
+
+        var maxY = top
+        for (i in 0 until com.fareza.blokku.core.Puzzles.COUNT) {
+            val row = i / cols; val col = i % cols
+            val l = D.dp(20f) + col * (cellW + gap)
+            val t = top + row * (cellW + gap)
+            maxY = t + cellW
+            val stars = Save.puzzleStars(i)
+            val open = i <= unlocked
+            val r = RectF(l, t, l + cellW, t + cellW)
+            cellRects.add(r to i)
+            val isNext = i == unlocked && open
+            when {
+                stars > 0 -> {
+                    D.rect(c, r.left, r.top + D.dp(3f), r.right, r.bottom + D.dp(3f), D.withAlpha(Color.BLACK, 70), D.dp(14f))
+                    D.gradientRect(c, r.left, r.top, r.right, r.bottom, D.lighten(0xFFBA8DF5.toInt(), 0.14f), D.darken(0xFFBA8DF5.toInt(), 0.12f), D.dp(14f))
+                }
+                open -> {
+                    D.card(c, r.left, r.top, r.right, r.bottom, D.color(theme.boardBg), D.dp(14f))
+                    if (isNext) D.rectStroke(c, r.left + 0.8f, r.top + 0.8f, r.right - 0.8f, r.bottom - 0.8f, 0xFFBA8DF5.toInt(), 1.8f, D.dp(14f))
+                }
+                else -> D.insetCell(c, r.left, r.top, r.right, r.bottom, D.withAlpha(D.color(theme.boardBg), 200), D.dp(14f))
+            }
+            val fg = if (open) D.color(theme.textPrimary) else D.withAlpha(D.color(theme.textPrimary), 130)
+            if (open) D.textIn(c, "${i + 1}", r, D.sp(17f), fg)
+            else Glyph.draw(c, "lock", RectF(r.centerX() - D.dp(8f), r.centerY() - D.dp(8f), r.centerX() + D.dp(8f), r.centerY() + D.dp(8f)), fg)
+            if (stars > 0) {
+                var sx = r.centerX() - (stars - 1) * D.dp(7f)
+                for (k in 0 until stars) {
+                    Glyph.draw(c, "star", RectF(sx - D.dp(5f), r.bottom - D.dp(13f), sx + D.dp(5f), r.bottom - D.dp(3f)), Color.WHITE)
+                    sx += D.dp(14f)
+                }
+            }
+        }
+        c.restore()
+        maxScroll = min(0f, host.height.toFloat() - D.dp(12f) - maxY - D.dp(10f))
+    }
+
+    override fun onTouch(e: MotionEvent): Boolean {
+        backButton?.let { if (e.actionMasked == MotionEvent.ACTION_DOWN && it.contains(e.x, e.y)) { it.pressT = 1f; it.onTap(); Audio.play("click"); return true } }
+        coinPill?.let { if (e.actionMasked == MotionEvent.ACTION_DOWN && it.contains(e.x, e.y)) { onCoinsTap(); return true } }
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { dragging = true; moved = false; dragStart = e.y; scrollStart = scrollY }
+            MotionEvent.ACTION_MOVE -> {
+                if (dragging) {
+                    val dy = e.y - dragStart
+                    if (Math.abs(dy) > host.touchSlopPx) moved = true
+                    scrollY = (scrollStart + dy).coerceIn(maxScroll, 0f)
+                    host.wake()
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                dragging = false
+                if (!moved) {
+                    for ((r, i) in cellRects) {
+                        val rr = RectF(r.left, r.top + scrollY, r.right, r.bottom + scrollY)
+                        if (rr.contains(e.x, e.y)) {
+                            if (i <= Save.maxUnlockedPuzzle() + 1) {
+                                Audio.play("click"); Haptic.tick()
+                                scene().push(GameScene(GameEngine.puzzle(com.fareza.blokku.core.Puzzles.get(i)), i))
+                            } else Audio.play("invalid")
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+        return true
+    }
+}
+
 // ============================ MISSIONS ============================
 
 class MissionsScene : BaseScene() {
@@ -251,6 +349,12 @@ class StatsScene : BaseScene() {
             s(R.string.stats_cells) to "${Save.totalCells}",
             s(R.string.stats_max_combo) to "×${Save.lifetimeBestCombo}",
             s(R.string.stats_dailies) to "${Save.dailiesDone}",
+            s(R.string.stats_best_rush) to "${Save.bestRush}",
+            s(R.string.stats_best_zen) to "${Save.bestZen}",
+            s(R.string.stats_puzzles) to "${Save.puzzleSolved} · ${Save.totalPuzzleStars}★",
+            s(R.string.stats_contracts) to "${Save.contractsDone}",
+            s(R.string.stats_snug) to "${Save.snugFits}",
+            s(R.string.stats_mono) to "${Save.monoLines}",
             s(R.string.stats_shards) to "${Save.shards}/5",
             s(R.string.stats_play_time) to s(R.string.stats_minutes, Save.playSeconds / 60),
         )

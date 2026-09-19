@@ -27,6 +27,8 @@ import kotlin.random.Random
 
 class MenuScene : BaseScene() {
 
+    private data class Quad(val res: Int, val ic: String, val sub: Int, val col: Int, val act: () -> Unit)
+
     private val buttons = ArrayList<UiButton>()
     private var logoT = 0f
     private var rewardBtn: UiButton? = null
@@ -65,7 +67,7 @@ class MenuScene : BaseScene() {
         val contentTop = h * 0.36f
         val dailyH = D.dp(60f)
         val continueH = if (Save.hasSavedRun()) D.dp(52f) + D.dp(12f) else 0f
-        val colH = continueH + D.dp(74f) + D.dp(16f) + D.dp(60f) + D.dp(16f) + D.dp(56f) + D.dp(18f) + dailyH
+        val colH = continueH + D.dp(74f) + D.dp(16f) + D.dp(60f) + D.dp(14f) + D.dp(60f) + D.dp(14f) + D.dp(56f) + D.dp(18f) + dailyH
         var y = contentTop + maxOf(0f, (statsRect.top - D.dp(14f) - contentTop - colH) / 2f)
 
         // Continue saved classic run — slim banner above the hero
@@ -112,23 +114,41 @@ class MenuScene : BaseScene() {
         })
         dailyBtn.appearDelay = 0.14f; dailyBtn.appear.t = -0.14f
         buttons.add(lvl); buttons.add(dailyBtn)
-        y += D.dp(76f)
+        y += D.dp(74f)
+
+        // modes row of three — Zen | Rush | Puzzle
+        val third = (bw - D.dp(24f)) / 3f
+        var mx = bx
+        for ((res, ic, sub, col, act) in listOf(
+            Quad(R.string.menu_zen, "g:zen", R.string.menu_zen_sub, 0xFF2DD4BF.toInt()) { scene().push(GameScene(GameEngine.zen())) },
+            Quad(R.string.menu_rush, "g:rush", R.string.menu_rush_sub, 0xFFFF5D73.toInt()) { scene().push(GameScene(GameEngine.rush())) },
+            Quad(R.string.menu_puzzle, "g:puzzle", R.string.menu_puzzle_sub, 0xFFBA8DF5.toInt()) { scene().push(PuzzleSelectScene()) },
+        )) {
+            val b = UiButton(RectF(mx, y, mx + third, y + D.dp(60f)), s(res), icon = ic, bg = col, fg = Color.WHITE, sublabel = s(sub), onTap = {
+                Audio.play("click"); Haptic.tick(); act()
+            }, textScale = 0.85f)
+            b.appearDelay = 0.16f + buttons.size * 0.02f
+            b.appear.t = -b.appearDelay
+            buttons.add(b)
+            mx += third + D.dp(12f)
+        }
+        y += D.dp(74f)
 
         // row of three smaller
-        val third = (bw - D.dp(24f)) / 3f
+        val smallW = (bw - D.dp(24f)) / 3f
         var xx = bx
         for ((res, ic, act) in listOf(
             Triple(R.string.menu_missions, "g:check") { scene().push(MissionsScene()) },
             Triple(R.string.menu_stats, "g:stats") { scene().push(StatsScene()) },
             Triple(R.string.menu_themes, "g:themes") { scene().push(ThemesScene()) },
         )) {
-            val b = UiButton(RectF(xx, y, xx + third, y + D.dp(56f)), s(res), icon = ic, bg = D.lighten(D.color(theme.boardBg), 0.10f), fg = D.color(theme.textPrimary), onTap = {
+            val b = UiButton(RectF(xx, y, xx + smallW, y + D.dp(56f)), s(res), icon = ic, bg = D.lighten(D.color(theme.boardBg), 0.10f), fg = D.color(theme.textPrimary), onTap = {
                 Audio.play("click"); Haptic.tick(); act()
             }, textScale = 0.8f)
             b.appearDelay = 0.18f + buttons.size * 0.02f
             b.appear.t = -b.appearDelay
             buttons.add(b)
-            xx += third + D.dp(12f)
+            xx += smallW + D.dp(12f)
         }
         y += D.dp(74f)
 

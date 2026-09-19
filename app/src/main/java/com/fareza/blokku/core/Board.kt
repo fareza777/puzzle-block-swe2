@@ -13,6 +13,12 @@ class Board(val size: Int = 9) {
      *  detonates, clearing its surrounding 3x3 and chaining into other bombs. */
     val bombs = BooleanArray(size * size)
 
+    /** ×3 cells — a line cleared through a multiplier cell triples that clear's score. */
+    val mults = BooleanArray(size * size)
+
+    /** Stone cells (Puzzle mode) — marks on filled cells; clearing them is the goal. */
+    val stones = BooleanArray(size * size)
+
     fun at(r: Int, c: Int) = cells[r * size + c]
 
     fun isEmpty(r: Int, c: Int) = cells[r * size + c] == 0
@@ -119,7 +125,7 @@ class Board(val size: Int = 9) {
     }
 
     fun applyClear(indices: IntArray) {
-        for (i in indices) { cells[i] = 0; gems[i] = false; bombs[i] = false }
+        for (i in indices) { cells[i] = 0; gems[i] = false; bombs[i] = false; mults[i] = false; stones[i] = false }
     }
 
     fun clearArea(row: Int, col: Int, radius: Int): IntArray {
@@ -128,7 +134,7 @@ class Board(val size: Int = 9) {
             for (c in (col - radius)..(col + radius)) {
                 if (r in 0 until size && c in 0 until size) {
                     val i = r * size + c
-                    if (cells[i] != 0) { cells[i] = 0; gems[i] = false; bombs[i] = false; removed.add(i) }
+                    if (cells[i] != 0) { cells[i] = 0; gems[i] = false; bombs[i] = false; mults[i] = false; stones[i] = false; removed.add(i) }
                 }
             }
         }
@@ -146,7 +152,15 @@ class Board(val size: Int = 9) {
         cells.copyInto(b.cells)
         gems.copyInto(b.gems)
         bombs.copyInto(b.bombs)
+        mults.copyInto(b.mults)
+        stones.copyInto(b.stones)
         return b
+    }
+
+    fun stoneCount(): Int {
+        var n = 0
+        for (v in stones) if (v) n++
+        return n
     }
 
     class ClearResult(val rows: List<Int>, val cols: List<Int>, val clearCells: IntArray) {

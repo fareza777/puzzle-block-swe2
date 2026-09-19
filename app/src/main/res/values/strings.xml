@@ -167,4 +167,49 @@
     <string name="shard_label">shard</string>
     <string name="shard_convert">%1$d shards → +%2$d coins!</string>
     <string name="stats_shards">Star shards</string>
+
+    <!-- v2.3 modes -->
+    <string name="menu_zen">Zen</string>
+    <string name="menu_rush">Rush</string>
+    <string name="menu_puzzle">Puzzle</string>
+    <string name="menu_zen_sub">No game over</string>
+    <string name="menu_rush_sub">90s score rush</string>
+    <string name="menu_puzzle_sub">Solve the stones</string>
+    <string name="zen_sub">Zen · relaxed, no game over</string>
+    <string name="rush_sub">Rush · fever charges faster</string>
+    <string name="puzzle_sub">Puzzle · clear every stone</string>
+    <string name="puzzle_select">Puzzle Levels</string>
+    <string name="puzzle_complete">Puzzle Solved!</string>
+    <string name="zen_refresh">Board refreshed — keep going!</string>
+    <string name="rush_done">Time\'s up!</string>
+
+    <!-- hold & preview -->
+    <string name="hold_label">HOLD</string>
+    <string name="next_label">NEXT</string>
+    <string name="hold_empty">Drop a piece here to save it</string>
+
+    <!-- contracts -->
+    <string name="contract_lines">%1$d lines in %2$d moves</string>
+    <string name="contract_combo">Combo %1$d× in %2$d moves</string>
+    <string name="contract_bomb">Detonate %1$d bomb</string>
+    <string name="contract_bombs">Detonate %1$d bombs</string>
+    <string name="contract_snug">%1$d snug fits in %2$d moves</string>
+    <string name="contract_done">Contract +%1$d</string>
+    <string name="contract_failed">Contract missed</string>
+
+    <!-- bonuses -->
+    <string name="mono_bonus">MONO +%1$d</string>
+    <string name="snug_bonus">SNUG +%1$d</string>
+    <string name="mult_float">×3!</string>
+    <string name="goal_stones">Clear %1$d stones</string>
+
+    <!-- stats additions -->
+    <string name="stats_best_rush">Best rush score</string>
+    <string name="stats_best_zen">Best zen score</string>
+    <string name="stats_puzzles">Puzzles solved</string>
+    <string name="stats_contracts">Contracts done</string>
+    <string name="stats_snug">Snug fits</string>
+    <string name="stats_mono">Mono lines</string>
+    <string name="grace_tip">Combo grace — one slip spared</string>
+    <string name="powers_hint2">HOLD a piece to save it for later\n×3 cells triple a line\'s score\nMONO: a line of one color pays extra\nSNUG: pack a piece tight for bonus</string>
 </resources>

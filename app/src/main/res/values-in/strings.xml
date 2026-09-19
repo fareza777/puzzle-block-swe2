@@ -157,4 +157,41 @@
     <string name="shard_label">pecahan</string>
     <string name="shard_convert">%1$d pecahan → +%2$d koin!</string>
     <string name="stats_shards">Pecahan bintang</string>
+
+    <!-- v2.3 modes -->
+    <string name="menu_zen">Zen</string>
+    <string name="menu_rush">Rush</string>
+    <string name="menu_puzzle">Puzzle</string>
+    <string name="menu_zen_sub">Tanpa game over</string>
+    <string name="menu_rush_sub">Serbu skor 90s</string>
+    <string name="menu_puzzle_sub">Bersihkan batu</string>
+    <string name="zen_sub">Zen · santai, tanpa game over</string>
+    <string name="rush_sub">Rush · meter terisi lebih cepat</string>
+    <string name="puzzle_sub">Puzzle · bersihkan semua batu</string>
+    <string name="puzzle_select">Level Puzzle</string>
+    <string name="puzzle_complete">Puzzle Terpecahkan!</string>
+    <string name="zen_refresh">Papan diperbarui — lanjut!</string>
+    <string name="rush_done">Waktu habis!</string>
+    <string name="hold_label">SIMPAN</string>
+    <string name="next_label">BERIKUT</string>
+    <string name="hold_empty">Taruh balok di sini untuk disimpan</string>
+    <string name="contract_lines">%1$d garis dlm %2$d langkah</string>
+    <string name="contract_combo">Kombo %1$d× dlm %2$d langkah</string>
+    <string name="contract_bomb">Ledakkan %1$d bom</string>
+    <string name="contract_bombs">Ledakkan %1$d bom</string>
+    <string name="contract_snug">%1$d pas rapat dlm %2$d langkah</string>
+    <string name="contract_done">Kontrak +%1$d</string>
+    <string name="contract_failed">Kontrak gagal</string>
+    <string name="mono_bonus">MONO +%1$d</string>
+    <string name="snug_bonus">PAS +%1$d</string>
+    <string name="mult_float">×3!</string>
+    <string name="goal_stones">Bersihkan %1$d batu</string>
+    <string name="stats_best_rush">Skor rush terbaik</string>
+    <string name="stats_best_zen">Skor zen terbaik</string>
+    <string name="stats_puzzles">Puzzle terpecahkan</string>
+    <string name="stats_contracts">Kontrak selesai</string>
+    <string name="stats_snug">Pas rapat</string>
+    <string name="stats_mono">Garis mono</string>
+    <string name="grace_tip">Maaf kombo — satu salah diampuni</string>
+    <string name="powers_hint2">SIMPAN balok untuk dipakai nanti\nsel ×3 melipatgandakan skor garis\nMONO: garis satu warna bayar ekstra\nPAS: kemas balok rapat untuk bonus</string>
 </resources>

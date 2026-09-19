@@ -54,6 +54,8 @@ object Save {
     // ---- records ----
     var bestClassic get() = p.getInt("bestClassic", 0); set(v) = p.edit().putInt("bestClassic", v).apply()
     var bestDailyScore get() = p.getInt("bestDaily", 0); set(v) = p.edit().putInt("bestDaily", v).apply()
+    var bestRush get() = p.getInt("bestRush", 0); set(v) = p.edit().putInt("bestRush", v).apply()
+    var bestZen get() = p.getInt("bestZen", 0); set(v) = p.edit().putInt("bestZen", v).apply()
 
     // ---- stats ----
     var gamesPlayed get() = p.getInt("s_games", 0); set(v) = p.edit().putInt("s_games", v).apply()
@@ -64,6 +66,10 @@ object Save {
     var dailiesDone get() = p.getInt("s_dailies", 0); set(v) = p.edit().putInt("s_dailies", v).apply()
     var powerupsUsed get() = p.getInt("s_pu", 0); set(v) = p.edit().putInt("s_pu", v).apply()
     var bestSingleScore get() = p.getInt("s_bestSingle", 0); set(v) = p.edit().putInt("s_bestSingle", v).apply()
+    var puzzleSolved get() = p.getInt("s_puzzleSolved", 0); set(v) = p.edit().putInt("s_puzzleSolved", v).apply()
+    var contractsDone get() = p.getInt("s_contracts", 0); set(v) = p.edit().putInt("s_contracts", v).apply()
+    var snugFits get() = p.getInt("s_snug", 0); set(v) = p.edit().putInt("s_snug", v).apply()
+    var monoLines get() = p.getInt("s_mono", 0); set(v) = p.edit().putInt("s_mono", v).apply()
 
     // ---- ad pacing ----
     var gamesSinceAd get() = p.getInt("ads_since", 0); set(v) = p.edit().putInt("ads_since", v).apply()
@@ -84,6 +90,20 @@ object Save {
         return max.coerceAtMost(Levels.COUNT - 1)
     }
 
+    // ---- puzzle stars ----
+    fun puzzleStars(idx: Int) = puzzleStarsArr.getOrElse(idx) { 0 }
+    fun setPuzzleStars(idx: Int, n: Int) {
+        if (idx !in puzzleStarsArr.indices || n <= puzzleStarsArr[idx]) return
+        puzzleStarsArr[idx] = n
+        p.edit().putString("pstars", puzzleStarsArr.joinToString(",")).apply()
+    }
+    val totalPuzzleStars get() = puzzleStarsArr.sum()
+    fun maxUnlockedPuzzle(): Int {
+        var max = 0
+        for (i in puzzleStarsArr.indices) if (puzzleStarsArr[i] > 0) max = i + 1
+        return max.coerceAtMost(puzzleStarsArr.size - 1)
+    }
+
     // ---- themes ----
     var selectedTheme get() = p.getString("theme", "sunrise")!!; set(v) = p.edit().putString("theme", v).apply()
     fun themeUnlocked(id: String) = unlockedThemes.contains(id)
@@ -94,6 +114,7 @@ object Save {
 
     // ---- missions / achievements (JSON blob) ----
     private lateinit var starsArr: IntArray
+    private lateinit var puzzleStarsArr: IntArray
     private lateinit var unlockedThemes: MutableSet<String>
     lateinit var missionsJson: JSONObject
     lateinit var achJson: JSONObject
@@ -103,6 +124,11 @@ object Save {
         starsArr = IntArray(Levels.COUNT)
         if (starStr.isNotEmpty()) {
             starStr.split(",").forEachIndexed { i, s -> s.toIntOrNull()?.let { starsArr[i] = it } }
+        }
+        puzzleStarsArr = IntArray(com.fareza.blokku.core.Puzzles.COUNT)
+        val pStarStr = p.getString("pstars", "")!!
+        if (pStarStr.isNotEmpty()) {
+            pStarStr.split(",").forEachIndexed { i, s -> s.toIntOrNull()?.let { if (i < puzzleStarsArr.size) puzzleStarsArr[i] = it } }
         }
         unlockedThemes = p.getString("themes", "sunrise")!!.split(",").filter { it.isNotEmpty() }.toMutableSet()
         unlockedThemes.add("sunrise")

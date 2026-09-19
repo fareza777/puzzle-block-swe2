@@ -16,6 +16,7 @@ import com.fareza.blokku.core.GoalType
 import com.fareza.blokku.core.Levels
 import com.fareza.blokku.core.Mode
 import com.fareza.blokku.core.Piece
+import com.fareza.blokku.core.Puzzles
 import com.fareza.blokku.data.Achievements
 import com.fareza.blokku.data.MissionType
 import com.fareza.blokku.data.Missions
@@ -57,6 +58,14 @@ class GameScene(
 
     private var pauseBtn: UiIconButton? = null
 
+    // ---- hold slot + next preview rail (left of the tray) ----
+    private var holdRect = RectF()
+    private var nextRects = arrayOfNulls<RectF>(3)
+    private var railW = 0f
+    private var holdPop = 0f   // pop anim when a piece lands in hold
+    private var zenReliefSeen = 0
+    private var contractChipT = 0f // pulse when contract appears/completes
+
     // ---- hint power-up ----
     private var hintMove: Triple<Int, Int, Int>? = null // (slot,row,col)
     private var hintT = 0f
@@ -91,6 +100,7 @@ class GameScene(
     private var dragVisY = 0f
     private var dragScale = 0f
     private var liftT = 0f   // piece floats up from the finger smoothly on pickup
+    private var dragTrailT = 0f // throttle for the sparkle trail under a carried piece
     private var tilt = 0f    // subtle sway while dragging (degrees)
     // return-flight animation when a drop is rejected
     private var retPiece: Piece? = null
@@ -193,9 +203,25 @@ class GameScene(
         trayCell = cell * 0.62f
         trayY = powerY + powerSize + D.dp(20f)
 
+        // left rail: HOLD card on top, NEXT previews stacked under it
+        railW = w * 0.19f
+        val railX = D.dp(8f)
+        val trayTop = trayY
+        val trayH = h - trayTop - D.dp(10f)
+        holdRect = RectF(railX, trayTop + D.dp(4f), railX + railW - D.dp(6f), trayTop + trayH * 0.48f)
+        val nCellH = (trayH - holdRect.height() - D.dp(18f)) / 3f
+        for (i in 0..2) {
+            val t = holdRect.bottom + D.dp(10f) + nCellH * i
+            nextRects[i] = RectF(railX + D.dp(4f), t, railX + railW - D.dp(10f), t + nCellH - D.dp(3f))
+        }
+
         meterRect = RectF(w / 2f - D.dp(76f), hudTop + D.dp(52f), w / 2f + D.dp(76f), hudTop + D.dp(64f))
         coinPill = null
     }
+
+    /** Tray slot width — the tray shares its row with the hold/next rail. */
+    private fun traySlotW() = (host.width - railW - D.dp(8f)) / 3f
+    private fun traySlotCx(i: Int) = railW + traySlotW() * i + traySlotW() / 2f
 
     override fun onResume() {
         computeLayout()
@@ -265,7 +291,7 @@ class GameScene(
                 }
             }
         }
-        // timed level countdown
+        // timed level / rush countdown
         if (engine.timeLimitSec > 0 && overlay == Overlay.NONE && gameOverDelay <= 0f && !engine.gameOver && !engine.goalMet) {
             timeLeft -= dt
             if (timeLeft <= 0f) {
@@ -273,6 +299,30 @@ class GameScene(
                 engine.onTimeExpired()
                 afterMove()
             }
+        }
+        holdPop = (holdPop - dt * 4f).coerceAtLeast(0f)
+        contractChipT = (contractChipT - dt).coerceAtLeast(0f)
+        // zen auto-relief notice
+        if (engine.zenReliefCount > zenReliefSeen) {
+            zenReliefSeen = engine.zenReliefCount
+            addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.3f, s(R.string.zen_refresh), D.color(theme.accent), D.sp(15f))
+            Audio.play("shuffle", 0.9f)
+            boardShake = 0.2f
+        }
+        // contract lifecycle toasts
+        engine.contractJustDone?.let { done ->
+            Save.coins += done.reward
+            Save.contractsDone++
+            coinFx()
+            addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.34f, s(R.string.contract_done, done.reward), 0xFF62D97B.toInt(), D.sp(17f))
+            Audio.play("reward")
+            Haptic.success()
+            contractChipT = 1f
+            engine.contractJustDone = null
+        }
+        if (engine.contractJustFailed) {
+            addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.30f, s(R.string.contract_failed), D.withAlpha(Color.WHITE, 190), D.sp(13f))
+            engine.contractJustFailed = false
         }
     }
 
@@ -303,6 +353,12 @@ class GameScene(
             // sway: tilt follows horizontal speed, decays to flat
             val vx = (dragVisX - prevX) / max(dt, 0.004f)
             tilt += ((vx * 0.006f).coerceIn(-9f, 9f) - tilt) * min(1f, dt * 9f)
+            // sparkle trail under the carried piece — sells the "lift"
+            dragTrailT -= dt
+            if (dragTrailT <= 0f && dragScale > 0.55f) {
+                dragTrailT = 0.055f
+                particles.sparkle(dragVisX + pw * 0.1f, dragVisY + ph * 0.55f, pw * 0.8f, ph * 0.4f, D.withAlpha(cellColor(p.colorIndex + 1), 150), 1)
+            }
         }
         // rejected drop flies back to its tray slot
         if (retPiece != null) {
@@ -320,7 +376,7 @@ class GameScene(
             dragIndex >= 0 || retPiece != null || gameOverDelay > 0 || overlayAnim.let { !it.done && overlay != Overlay.NONE } ||
             enterAnim.t < enterAnim.duration || trayPop.any { it < 1f } ||
             feverBannerT > 0 || perfectBannerT > 0 || engine.feverT > 0 ||
-            hintT > 0 || dangerPulse > 0 || undoHeld ||
+            hintT > 0 || dangerPulse > 0 || undoHeld || holdPop > 0 || contractChipT > 0 ||
             (engine.timeLimitSec > 0 && overlay == Overlay.NONE && !engine.gameOver) ||
             (overlay == Overlay.LEVEL_COMPLETE && starAnimT < 2f)
 
@@ -361,7 +417,7 @@ class GameScene(
                         // preserve the grab point inside the piece so it
                         // doesn't jump to center under the finger
                         val p0 = engine.tray[i]
-                        val slotCx = (host.width / 3f) * i + host.width / 6f
+                        val slotCx = traySlotCx(i)
                         val pw0 = (p0?.cols ?: 1) * trayCell
                         grabFracX = ((e.x - (slotCx - pw0 / 2f)) / pw0).coerceIn(0f, 1f)
                         dragScale = 0f
@@ -417,6 +473,29 @@ class GameScene(
         val piece = engine.tray[i]
         dragIndex = -1
         dragPointerId = -1
+        // dropped over the HOLD card? park the piece there (or swap with the held one)
+        if (holdRect.contains(dragX, dragY - dragOffY) || holdRect.contains(dragX, dragY)) {
+            if (piece != null && engine.hold(i)) {
+                holdPop = 1f
+                Audio.play("pickup")
+                Haptic.soft()
+                refreshDanger()
+                saveRun()
+            } else {
+                Audio.play("invalid")
+                Haptic.error()
+            }
+            if (engine.tray[i] != null) {
+                retPiece = engine.tray[i]
+                retX0 = holdRect.centerX() - retPiece!!.cols * trayCell / 2f; retY0 = holdRect.centerY()
+                retX = retX0; retY = retY0
+                retX1 = traySlotCx(i) - retPiece!!.cols * trayCell / 2f
+                retY1 = trayY + (host.height - trayY - D.dp(10f)) / 2f - retPiece!!.rows * trayCell / 2f
+                retT = 0f
+                host.wake()
+            }
+            return
+        }
         if (snapFits && snapRow >= 0 && snapCol >= 0) {
             doPlace(i, snapRow, snapCol)
         } else {
@@ -428,8 +507,7 @@ class GameScene(
                 retPiece = piece
                 retX0 = dragVisX; retY0 = dragVisY
                 retX = retX0; retY = retY0
-                val slotCx = (host.width / 3f) * i + host.width / 6f
-                retX1 = slotCx - piece.cols * trayCell / 2f
+                retX1 = traySlotCx(i) - piece.cols * trayCell / 2f
                 retY1 = trayY + (host.height - trayY - D.dp(10f)) / 2f - piece.rows * trayCell / 2f
                 retT = 0f
                 host.wake()
@@ -493,6 +571,7 @@ class GameScene(
                     life = 0.6f, gravity = D.dp(500f),
                 )
             }
+            if (n >= 2) boardShake = maxOf(boardShake, 0.10f + n * 0.07f)
             // combo banner — pitch climbs with the combo level
             if (res.comboCount >= 2) {
                 comboBannerN = res.comboCount
@@ -517,6 +596,7 @@ class GameScene(
                 Save.coins += coins
                 addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.24f, "+$coins", 0xFFFFD75E.toInt(), D.sp(22f))
                 Audio.play("coin")
+                coinFx()
             }
             // bomb cells detonated by the clear — bigger boom juice
             if (res.bombsDetonated > 0) {
@@ -533,12 +613,22 @@ class GameScene(
                 }
                 addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.12f, s(R.string.boom_float), 0xFFFF8A3C.toInt(), D.sp(20f))
             }
+            // MONO — a cleared line of a single colour pays +50% and flashes
+            if (res.monoLines > 0) {
+                addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.52f, s(R.string.mono_bonus, res.gained / 3), 0xFF9DE2FF.toInt(), D.sp(17f))
+                Audio.play("reward", 1.15f)
+                particles.ring(boardRect.centerX(), boardRect.top + boardRect.height() * 0.5f, 0xFF9DE2FF.toInt(), count = 18)
+            }
+            if (res.multHit) {
+                addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.16f, s(R.string.mult_float), 0xFFFFE066.toInt(), D.sp(26f))
+                Audio.play("reward", 1.3f)
+            }
             // combo milestones pay coins — keeps the chain thrilling
             if (res.comboCount >= 3) {
                 val pay = res.comboCount * 2
                 Save.coins += pay
                 addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.7f, "+$pay ${s(R.string.coins)}", 0xFFFFD75E.toInt(), D.sp(16f))
-                coinPill?.bump()
+                coinFx()
             }
             if (res.perfectClear) {
                 perfectBannerT = 1.6f
@@ -550,7 +640,23 @@ class GameScene(
         } else {
             Audio.playVaried("place")
         }
+        // SNUG — piece packed perfectly tight pays a flat bonus every placement
+        if (res.snug) {
+            addFloat(boardRect.centerX(), boardRect.bottom - D.dp(8f), s(R.string.snug_bonus, 25 + piece.size * 5), 0xFF7BE495.toInt(), D.sp(13f))
+            Save.snugFits++
+            Audio.play("coin", 1.3f)
+        }
+        if (res.monoLines > 0) Save.monoLines += res.monoLines
         for (cc in lastPlacedCells) cellAnim[cc] = 0f
+        // landing dust — soft puffs at the foot of every placed cell
+        for (cc in lastPlacedCells) {
+            val br3 = cc / 9; val bc3 = cc % 9
+            particles.burst(
+                boardRect.left + (bc3 + 0.5f) * cell, boardRect.top + (br3 + 0.85f) * cell,
+                D.withAlpha(D.color(theme.gridLine), 120), count = 2, speed = D.dp(80f),
+                size = D.dp(5f), life = 0.4f, gravity = D.dp(160f),
+            )
+        }
         Missions.track(MissionType.CELLS_TOTAL, lastPlacedCells.size)
         if (engine.trayEmpty()) {
             for (k in 0..2) trayPop[k] = -k * 0.12f // staggered spawn pop
@@ -602,12 +708,21 @@ class GameScene(
         commitStats()
         overlay = when {
             engine.goalMet && engine.mode != Mode.CLASSIC -> {
-                shownStars = if (engine.mode == Mode.LEVEL) {
-                    val def = Levels.get(levelIndex)
-                    val st = Levels.stars(engine, def)
-                    Save.setStars(levelIndex, st)
-                    st
-                } else 3
+                shownStars = when (engine.mode) {
+                    Mode.LEVEL -> {
+                        val def = Levels.get(levelIndex)
+                        val st = Levels.stars(engine, def)
+                        Save.setStars(levelIndex, st)
+                        st
+                    }
+                    Mode.PUZZLE -> {
+                        val st = Puzzles.stars(engine)
+                        Save.setPuzzleStars(levelIndex, st)
+                        st
+                    }
+                    else -> 3
+                }
+                if (engine.mode == Mode.PUZZLE) Save.puzzleSolved++
                 if (engine.mode == Mode.DAILY) {
                     Save.dailiesDone++
                     Save.markDailyDone(dailySeed)
@@ -622,11 +737,15 @@ class GameScene(
             else -> Overlay.GAMEOVER
         }
         overlayAnim.reset()
+        // Rush game-over header reads differently but still shares the overlay
         if (overlay == Overlay.GAMEOVER && engine.mode == Mode.CLASSIC) {
             Save.clearSavedRun()
             if (engine.score > Save.bestClassic) {
                 Save.bestClassic = engine.score
             }
+        }
+        if (overlay == Overlay.GAMEOVER && engine.mode == Mode.RUSH && engine.score > Save.bestRush) {
+            Save.bestRush = engine.score
         }
     }
 
@@ -639,6 +758,8 @@ class GameScene(
         if (engine.bestCombo > Save.lifetimeBestCombo) Save.lifetimeBestCombo = engine.bestCombo
         if (engine.score > Save.bestSingleScore) Save.bestSingleScore = engine.score
         if (engine.mode == Mode.CLASSIC && engine.score > Save.bestClassic) Save.bestClassic = engine.score
+        if (engine.mode == Mode.RUSH && engine.score > Save.bestRush) Save.bestRush = engine.score
+        if (engine.mode == Mode.ZEN && engine.score > Save.bestZen) Save.bestZen = engine.score
         Save.playSeconds += (System.currentTimeMillis() - sessionStart) / 1000
         Missions.track(MissionType.PLAY_GAMES, 1)
         Missions.track(MissionType.SCORE_GAME, engine.score)
@@ -796,7 +917,7 @@ class GameScene(
             PowerKind.HINT -> s(R.string.power_hint)
         }
         addFloat(boardRect.centerX(), meterRect.bottom + D.dp(24f), "+1 $label · +5 ${s(R.string.coins)}", D.color(theme.accent), D.sp(16f))
-        coinPill?.bump()
+        coinFx()
     }
 
     private fun toastPowerEmpty() {
@@ -871,6 +992,9 @@ class GameScene(
                 "${s(R.string.level)} ${levelIndex + 1} • ${s(R.string.timed_badge)} • ${goalLabel()}"
             else "${s(R.string.level)} ${levelIndex + 1} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
             Mode.DAILY -> "${s(R.string.menu_daily)}${dailyModLabel()} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
+            Mode.ZEN -> "${s(R.string.zen_sub)} • ${s(R.string.best)} ${max(Save.bestZen, engine.score)}"
+            Mode.RUSH -> "${s(R.string.rush_sub)} • ${s(R.string.best)} ${max(Save.bestRush, engine.score)}"
+            Mode.PUZZLE -> "${s(R.string.menu_puzzle)} ${levelIndex + 1} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
         }
         D.textFit(c, sub, w / 2f, hudTop + D.sp(22f) + D.sp(15f), D.sp(11f), w - D.dp(150f), D.withAlpha(D.color(theme.textPrimary), 190), bold = false)
         if (coinPill == null) coinPill = com.fareza.blokku.ui.CoinPill(w - D.dp(106f), hudTop - D.dp(4f)) { onCoinsTap() }
@@ -937,7 +1061,7 @@ class GameScene(
             Save.coins += 200
             addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.18f, s(R.string.shard_convert, 5, 200), 0xFFFFE066.toInt(), D.sp(18f))
             Audio.play("reward")
-            coinPill?.bump()
+            coinFx()
         }
     }
 
@@ -945,6 +1069,7 @@ class GameScene(
         GoalType.SCORE -> s(R.string.goal_score, engine.goal.target)
         GoalType.LINES -> s(R.string.goal_lines, engine.goal.target)
         GoalType.CELLS -> s(R.string.goal_cells, engine.goal.target)
+        GoalType.STONES -> s(R.string.goal_stones, engine.goal.target)
         GoalType.NONE -> ""
     }
 
@@ -1026,8 +1151,10 @@ class GameScene(
                     scale = Ease.outBack(k)
                 }
                 drawCell(c, l, t, scale, cellColor(v), v)
+                if (engine.board.stones[idx]) drawStone(c, l + cell * 0.43f, t + cell * 0.43f, cell * 0.42f)
                 if (engine.board.gems[idx]) drawGem(c, l + cell * 0.43f, t + cell * 0.43f, cell * 0.26f)
                 if (engine.board.bombs[idx]) drawBombCell(c, l + cell * 0.43f, t + cell * 0.43f, cell * 0.34f)
+                if (engine.board.mults[idx]) drawMultCell(c, l + cell * 0.43f, t + cell * 0.43f, cell * 0.34f)
             }
         }
 
@@ -1070,6 +1197,117 @@ class GameScene(
             D.rectStroke(c, boardRect.left - D.dp(7f), boardRect.top - D.dp(7f), boardRect.right + D.dp(7f), boardRect.bottom + D.dp(7f), D.withAlpha(0xFFFF5D73.toInt(), (90 * dp2).toInt()), D.dp(3f), D.dp(20f))
         }
         c.restore()
+    }
+
+    /** Golden "×3" badge marking a multiplier cell. */
+    private fun drawMultCell(c: Canvas, cx: Float, cy: Float, r: Float) {
+        val tw = 0.7f + 0.3f * kotlin.math.sin(host.globalTime * 7f)
+        D.circle(c, cx, cy, r * 0.66f, D.withAlpha(0xFF4A3B00.toInt(), 230))
+        D.circle(c, cx, cy, r * 0.66f, D.withAlpha(0xFFFFE066.toInt(), (60 * tw).toInt()))
+        D.textFit(c, "×3", cx, cy + r * 0.30f, r * 0.62f, r * 1.3f, D.withAlpha(0xFFFFE066.toInt(), (200 * tw).toInt() + 55))
+    }
+
+    /** Stone cell marking — a dark rocky cap the player must clear off. */
+    private fun drawStone(c: Canvas, cx: Float, cy: Float, r: Float) {
+        D.rect(c, cx - r * 0.9f, cy - r * 0.9f, cx + r * 0.9f, cy + r * 0.9f, D.withAlpha(0xFF1C1626.toInt(), 190), r * 0.2f)
+        D.rectStroke(c, cx - r * 0.9f, cy - r * 0.9f, cx + r * 0.9f, cy + r * 0.9f, D.withAlpha(0xFFB8A8D8.toInt(), 130), 1.6f, r * 0.2f)
+        // crack mark
+        D.p.style = Paint.Style.STROKE
+        D.p.strokeWidth = r * 0.12f
+        D.p.color = D.withAlpha(0xFFB8A8D8.toInt(), 200)
+        c.drawLine(cx - r * 0.4f, cy - r * 0.1f, cx - r * 0.05f, cy + r * 0.25f, D.p)
+        c.drawLine(cx - r * 0.05f, cy + r * 0.25f, cx + r * 0.42f, cy - r * 0.3f, D.p)
+        D.p.style = Paint.Style.FILL
+    }
+
+    /** Left rail: HOLD card + stacked NEXT previews. */
+    private fun renderHoldNext(c: Canvas, trayTop: Float, trayH: Float) {
+        // HOLD card
+        val popK = 1f + 0.12f * holdPop
+        c.save()
+        c.scale(popK, popK, holdRect.centerX(), holdRect.centerY())
+        val locked = engine.holdLocked
+        val hovering = dragIndex >= 0 && (holdRect.contains(dragX, dragY - dragOffY) || holdRect.contains(dragX, dragY))
+        if (hovering) {
+            D.gradientRect(c, holdRect.left, holdRect.top, holdRect.right, holdRect.bottom, D.lighten(D.color(theme.accent), 0.05f), D.darken(D.color(theme.accent), 0.1f), D.dp(14f))
+            D.rectStroke(c, holdRect.left + 0.8f, holdRect.top + 0.8f, holdRect.right - 0.8f, holdRect.bottom - 0.8f, D.withAlpha(Color.WHITE, 220), 1.6f, D.dp(14f))
+        } else {
+            D.card(c, holdRect.left, holdRect.top, holdRect.right, holdRect.bottom, D.color(theme.boardBg), D.dp(14f), elevated = !locked)
+            D.rectStroke(c, holdRect.left + 0.8f, holdRect.top + 0.8f, holdRect.right - 0.8f, holdRect.bottom - 0.8f, D.withAlpha(if (locked) 0xFF777788.toInt() else D.color(theme.accent), if (locked) 60 else 130), 1.2f, D.dp(14f))
+        }
+        D.labelTextFit(c, s(R.string.hold_label), holdRect.centerX(), holdRect.top + D.dp(11f), D.sp(8.5f), holdRect.width() - D.dp(8f), D.withAlpha(if (hovering) Color.WHITE else D.color(theme.textPrimary), if (locked) 120 else 200), spacing = 0.14f)
+        val hp = engine.holdPiece
+        if (hp == null) {
+            Glyph.draw(c, "hold", RectF(holdRect.centerX() - D.dp(11f), holdRect.centerY() - D.dp(2f), holdRect.centerX() + D.dp(11f), holdRect.centerY() + D.dp(20f)), D.withAlpha(D.color(theme.textPrimary), 90))
+        } else {
+            val hcell = min(holdRect.width() / (hp.cols + 0.6f), (holdRect.height() - D.dp(22f)) / (hp.rows + 0.6f))
+            val pw = hp.cols * hcell; val ph = hp.rows * hcell
+            val ox = holdRect.centerX() - pw / 2f; val oy = holdRect.top + D.dp(18f) + (holdRect.height() - D.dp(18f) - ph) / 2f
+            val alpha = if (locked) 120 else 255
+            for (pc in hp.cells) {
+                val pr = pc shr 4; val pcc = pc and 15
+                val l = ox + pcc * hcell; val t = oy + pr * hcell
+                D.blockCell(c, l, t, l + hcell * 0.9f, t + hcell * 0.9f, cellColor(hp.colorIndex + 1), hcell * 0.2f, alpha)
+                if (pc == engine.holdGem) drawGem(c, l + hcell * 0.45f, t + hcell * 0.45f, hcell * 0.24f)
+                if (pc == engine.holdBomb) drawBombCell(c, l + hcell * 0.45f, t + hcell * 0.45f, hcell * 0.36f)
+                if (pc == engine.holdMult) drawMultCell(c, l + hcell * 0.45f, t + hcell * 0.45f, hcell * 0.36f)
+            }
+        }
+        c.restore()
+
+        // NEXT previews — tiny silhouettes of the upcoming tray
+        D.labelText(c, s(R.string.next_label), (holdRect.left + holdRect.right) / 2f, holdRect.bottom + D.dp(6f), D.sp(7.5f), D.withAlpha(D.color(theme.textPrimary), 110), spacing = 0.14f)
+        for (i in 0..2) {
+            val nr = nextRects[i] ?: continue
+            val np = engine.nextTray[i] ?: continue
+            D.insetCell(c, nr.left, nr.top, nr.right, nr.bottom, D.withAlpha(D.color(theme.cellEmpty), 80), D.dp(10f))
+            val ncell = min(nr.width() / (np.cols + 0.4f), nr.height() / (np.rows + 0.4f)) * 0.9f
+            val pw = np.cols * ncell; val ph = np.rows * ncell
+            val ox = nr.centerX() - pw / 2f; val oy = nr.centerY() - ph / 2f
+            for (pc in np.cells) {
+                val pr = pc shr 4; val pcc = pc and 15
+                val l = ox + pcc * ncell; val t = oy + pr * ncell
+                D.blockCell(c, l, t, l + ncell * 0.9f, t + ncell * 0.9f, cellColor(np.colorIndex + 1), ncell * 0.2f, 150)
+                if (pc == engine.nextGem[i]) drawGem(c, l + ncell * 0.45f, t + ncell * 0.45f, ncell * 0.22f)
+                if (pc == engine.nextBomb[i]) drawBombCell(c, l + ncell * 0.45f, t + ncell * 0.45f, ncell * 0.32f)
+                if (pc == engine.nextMult[i]) drawMultCell(c, l + ncell * 0.45f, t + ncell * 0.45f, ncell * 0.32f)
+            }
+        }
+    }
+
+    /** Active micro-contract chip above the tray + combo-grace sliver. */
+    private fun renderContractChip(c: Canvas, trayTop: Float) {
+        val ct = engine.contract
+        val chipH = D.dp(26f)
+        val cy = trayTop - chipH - D.dp(6f)
+        if (ct != null && overlay == Overlay.NONE) {
+            val text = contractText(ct)
+            val pulse = if (contractChipT > 0f) 1f + contractChipT * 0.15f else 1f
+            c.save()
+            c.scale(pulse, pulse, boardRect.centerX(), cy + chipH / 2f)
+            val chipW = min(boardRect.width(), D.textWidth(text, D.sp(11f)) + D.dp(30f))
+            val l = boardRect.centerX() - chipW / 2f
+            val urgent = ct.movesLeft <= 2
+            val bg = if (urgent) D.withAlpha(0xFFFF5D73.toInt(), 60) else D.withAlpha(D.color(theme.accent), 40)
+            D.rect(c, l, cy, l + chipW, cy + chipH, bg, chipH / 2)
+            D.rectStroke(c, l + 0.6f, cy + 0.6f, l + chipW - 0.6f, cy + chipH - 0.6f, D.withAlpha(if (urgent) 0xFFFF5D73.toInt() else D.color(theme.accent), 150), 1.2f, chipH / 2)
+            Glyph.draw(c, "target", RectF(l + D.dp(8f), cy + D.dp(6f), l + D.dp(8f) + D.dp(14f), cy + D.dp(20f)), D.withAlpha(if (urgent) 0xFFFF5D73.toInt() else D.color(theme.accent), 230))
+            D.textFit(c, text + "  ${ct.prog}/${ct.target}", boardRect.centerX() + D.dp(8f), cy + chipH * 0.68f, D.sp(11f), chipW - D.dp(30f), D.color(theme.textPrimary))
+            c.restore()
+        }
+        // combo grace: thin sliver under the score when the chain is on its last chance
+        if (engine.combo > 0 && engine.comboGrace <= 0) {
+            val gw = D.dp(90f)
+            val gy = meterRect.bottom + D.dp(3f)
+            D.rect(c, boardRect.centerX() - gw / 2f, gy, boardRect.centerX() + gw / 2f, gy + D.dp(4f), D.withAlpha(0xFFFF5D73.toInt(), (120 + 80 * kotlin.math.sin(host.globalTime * 8f)).toInt()), D.dp(2f))
+        }
+    }
+
+    private fun contractText(ct: com.fareza.blokku.core.Contract): String = when (ct.type) {
+        0 -> s(R.string.contract_lines, ct.target, ct.movesLeft)
+        1 -> s(R.string.contract_combo, ct.target, ct.movesLeft)
+        2 -> if (ct.target > 1) s(R.string.contract_bombs, ct.target) else s(R.string.contract_bomb, ct.target)
+        else -> s(R.string.contract_snug, ct.target, ct.movesLeft)
     }
 
     private fun isClearing(idx: Int): Boolean {
@@ -1124,16 +1362,16 @@ class GameScene(
     }
 
     private fun renderTray(c: Canvas) {
-        val w = host.width.toFloat()
-        val slotW = w / 3f
+        val slotW = traySlotW()
         val trayTop = trayY
         val trayH = host.height - trayTop - D.dp(10f)
+        renderHoldNext(c, trayTop, trayH)
         for (i in 0..2) {
-            val cx = slotW * i + slotW / 2f
+            val cx = railW + slotW * i + slotW / 2f
             val cy = trayTop + trayH / 2f
             val p = engine.tray[i]
             // slot card — always visible for visual rhythm
-            val slotRect = RectF(slotW * i + D.dp(7f), trayTop + D.dp(4f), slotW * (i + 1) - D.dp(7f), trayTop + trayH)
+            val slotRect = RectF(railW + slotW * i + D.dp(7f), trayTop + D.dp(4f), railW + slotW * (i + 1) - D.dp(7f), trayTop + trayH)
             trayRects[i] = slotRect
             val sr = RectF(slotRect.left, slotRect.top + slotRect.height() * 0.14f, slotRect.right, slotRect.bottom - slotRect.height() * 0.1f)
             if (p == null) {
@@ -1143,21 +1381,28 @@ class GameScene(
             D.card(c, sr.left, sr.top, sr.right, sr.bottom, D.color(theme.boardBg), D.dp(16f), elevated = true)
             val fitsAny = engine.board.anyFit(p)
             val popK = Ease.outBack(trayPop[i].coerceIn(0f, 1f))
-            val pieceW = p.cols * trayCell * popK
-            val pieceH = p.rows * trayCell * popK
+            // shrink wide/tall pieces so they never spill outside the slot
+            val fitK = minOf(1f, (sr.width() * 0.82f) / (p.cols * trayCell), (sr.height() * 0.82f) / (p.rows * trayCell))
+            val pc0 = trayCell * fitK
+            val pieceW = p.cols * pc0 * popK
+            val pieceH = p.rows * pc0 * popK
             val alpha = if (fitsAny) 255 else 110
             if (trayPop[i] > 0f) for (pc in p.cells) {
                 val pr = pc shr 4; val pcc = pc and 15
-                val l = cx - pieceW / 2 + pcc * trayCell * popK + trayCell * 0.05f * popK
-                val t = cy - pieceH / 2 + pr * trayCell * popK + trayCell * 0.05f * popK
-                D.blockCell(c, l, t, l + trayCell * 0.9f * popK, t + trayCell * 0.9f * popK, cellColor(p.colorIndex + 1), trayCell * 0.2f, alpha)
-                if (pc == engine.trayGem[i]) drawGem(c, l + trayCell * 0.45f * popK, t + trayCell * 0.45f * popK, trayCell * 0.24f)
-                if (pc == engine.trayBomb[i]) drawBombCell(c, l + trayCell * 0.45f * popK, t + trayCell * 0.45f * popK, trayCell * 0.36f)
+                val l = cx - pieceW / 2 + pcc * pc0 * popK + pc0 * 0.05f * popK
+                val t = cy - pieceH / 2 + pr * pc0 * popK + pc0 * 0.05f * popK
+                D.blockCell(c, l, t, l + pc0 * 0.9f * popK, t + pc0 * 0.9f * popK, cellColor(p.colorIndex + 1), pc0 * 0.2f, alpha)
+                if (pc == engine.trayGem[i]) drawGem(c, l + pc0 * 0.45f * popK, t + pc0 * 0.45f * popK, pc0 * 0.24f)
+                if (pc == engine.trayBomb[i]) drawBombCell(c, l + pc0 * 0.45f * popK, t + pc0 * 0.45f * popK, pc0 * 0.36f)
+                if (pc == engine.trayMult[i]) drawMultCell(c, l + pc0 * 0.45f * popK, t + pc0 * 0.45f * popK, pc0 * 0.36f)
             }
             if (rotateArmed && fitsAny) {
                 D.rectStroke(c, slotRect.left, slotRect.top, slotRect.right, slotRect.bottom, D.color(theme.accent), D.dp(2f), D.dp(14f))
             }
         }
+        // contract chip + combo-grace bar sit above the tray
+        renderContractChip(c, trayTop)
+
         // hint ghost — pulsing suggested placement (slot + board cell)
         val hm = hintMove
         if (hm != null && hintT > 0f) {
@@ -1206,8 +1451,17 @@ class GameScene(
             D.blockCell(c, l, t, l + cur * 0.9f, t + cur * 0.9f, cellColor(p.colorIndex + 1), cur * 0.2f)
             if (pc == engine.trayGem[dragIndex]) drawGem(c, l + cur * 0.45f, t + cur * 0.45f, cur * 0.24f)
             if (pc == engine.trayBomb[dragIndex]) drawBombCell(c, l + cur * 0.45f, t + cur * 0.45f, cur * 0.36f)
+            if (pc == engine.trayMult[dragIndex]) drawMultCell(c, l + cur * 0.45f, t + cur * 0.45f, cur * 0.36f)
         }
         c.restore()
+    }
+
+    /** Coin payout feedback: pill bounce + gold sparkles flying over it. */
+    private fun coinFx() {
+        coinPill?.let { p ->
+            p.bump()
+            particles.sparkle(p.x - D.dp(6f), p.y - D.dp(20f), D.dp(60f), D.dp(26f), 0xFFFFD75E.toInt(), 5)
+        }
     }
 
     /** Piece flying back to its slot after an invalid drop. */
@@ -1274,7 +1528,7 @@ class GameScene(
         val dh = when (overlay) {
             Overlay.GAMEOVER -> D.dp(368f)
             Overlay.LEVEL_COMPLETE -> D.dp(320f)
-            Overlay.POWERS -> D.dp(420f)
+            Overlay.POWERS -> D.dp(500f)
             else -> D.dp(240f)
         }
         val dl = (w - dw) / 2f
@@ -1356,6 +1610,11 @@ class GameScene(
             D.textFit(c, line, dialogRect.centerX(), hy, D.sp(9.8f), dialogRect.width() - D.dp(36f), D.withAlpha(D.color(theme.textPrimary), 150), bold = false)
             hy += D.dp(15f)
         }
+        hy += D.dp(6f)
+        for (line in s(R.string.powers_hint2).split('\n')) {
+            D.textFit(c, line, dialogRect.centerX(), hy, D.sp(9.8f), dialogRect.width() - D.dp(36f), D.withAlpha(0xFFFFE066.toInt(), 160), bold = false)
+            hy += D.dp(15f)
+        }
         overlayBtn(dialogRect.left + D.dp(24f), dialogRect.bottom - D.dp(56f), dialogRect.right - D.dp(24f), dialogRect.bottom - D.dp(12f), s(R.string.got_it), D.color(theme.accent)) {
             overlay = Overlay.NONE; Audio.play("click")
         }
@@ -1379,7 +1638,11 @@ class GameScene(
     private fun renderGameOverOverlay(c: Canvas) {
         val cx = dialogRect.centerX()
         overlayTitle(c, s(R.string.game_over), dialogRect.top + D.dp(36f), D.sp(22f))
-        val isBest = engine.mode == Mode.CLASSIC && engine.score >= Save.bestClassic && engine.score > 0
+        val isBest = when (engine.mode) {
+            Mode.CLASSIC -> engine.score >= Save.bestClassic && engine.score > 0
+            Mode.RUSH -> engine.score >= Save.bestRush && engine.score > 0
+            else -> false
+        }
         if (isBest) {
             // little crown pop over the score
             val tw = D.textWidth(s(R.string.new_best), D.sp(14f)) + D.dp(26f)
@@ -1393,7 +1656,7 @@ class GameScene(
         val stats = arrayOf(
             Triple("stats", s(R.string.stats_lines), "${engine.linesCleared}"),
             Triple("themes", s(R.string.stats_max_combo), "×${engine.bestCombo}"),
-            Triple("star", s(R.string.best), "${max(Save.bestClassic, engine.score)}"),
+            Triple("star", s(R.string.best), "${max(when (engine.mode) { Mode.RUSH -> Save.bestRush; Mode.ZEN -> Save.bestZen; else -> Save.bestClassic }, engine.score)}"),
         )
         val sw2 = dialogRect.width() / 3f
         for (i in stats.indices) {
@@ -1406,7 +1669,7 @@ class GameScene(
         val bw = dialogRect.width() - D.dp(48f)
         val bx = dialogRect.left + D.dp(24f)
         var by = dialogRect.top + D.dp(196f)
-        if (!revived) {
+        if (!revived && engine.mode != Mode.PUZZLE) {
             val label = if (!Save.adsRemoved && Ads.rewardedReady) s(R.string.watch_ad_continue) else "${s(R.string.continue_game)} — 50"
             val rb = overlayBtn(bx, by, bx + bw, by + D.dp(46f), label, 0xFF62D97B.toInt()) {
                 revive()
@@ -1430,7 +1693,11 @@ class GameScene(
 
     private fun renderLevelCompleteOverlay(c: Canvas) {
         val cx = dialogRect.centerX()
-        val title = if (engine.mode == Mode.DAILY) s(R.string.daily_complete) else s(R.string.level_complete)
+        val title = when (engine.mode) {
+            Mode.DAILY -> s(R.string.daily_complete)
+            Mode.PUZZLE -> s(R.string.puzzle_complete)
+            else -> s(R.string.level_complete)
+        }
         overlayTitle(c, title, dialogRect.top + D.dp(42f), D.sp(21f))
         // stars
         for (i in 0..2) {
@@ -1451,6 +1718,14 @@ class GameScene(
         if (engine.mode == Mode.LEVEL && levelIndex + 1 < Levels.COUNT) {
             overlayBtn(bx, by, bx + bw, by + D.dp(50f), s(R.string.next_level), D.color(theme.accent)) {
                 val next = GameScene(GameEngine.level(Levels.get(levelIndex + 1)), levelIndex + 1)
+                scene().swapTo(next)
+                Audio.play("click")
+            }
+            by += D.dp(60f)
+        }
+        if (engine.mode == Mode.PUZZLE && levelIndex + 1 < Puzzles.COUNT) {
+            overlayBtn(bx, by, bx + bw, by + D.dp(50f), s(R.string.next_level), D.color(theme.accent)) {
+                val next = GameScene(GameEngine.puzzle(Puzzles.get(levelIndex + 1)), levelIndex + 1)
                 scene().swapTo(next)
                 Audio.play("click")
             }
@@ -1483,6 +1758,9 @@ class GameScene(
             Mode.CLASSIC -> GameScene(GameEngine.classic())
             Mode.LEVEL -> GameScene(GameEngine.level(Levels.get(levelIndex)), levelIndex)
             Mode.DAILY -> GameScene(Daily.todayEngine(), dailySeed = dailySeed)
+            Mode.ZEN -> GameScene(GameEngine.zen())
+            Mode.RUSH -> GameScene(GameEngine.rush())
+            Mode.PUZZLE -> GameScene(GameEngine.puzzle(Puzzles.get(levelIndex)), levelIndex)
         }
         scene().swapTo(fresh)
         Ads.maybeInterstitial(host.context)
@@ -1505,6 +1783,7 @@ class GameScene(
     }
 
     private fun doRevive() {
+        if (engine.mode == Mode.RUSH) timeLeft = timeLeft + 20f // a revive buys 20 extra seconds
         val removed = engine.reviveClear()
         revived = true
         overlay = Overlay.NONE
