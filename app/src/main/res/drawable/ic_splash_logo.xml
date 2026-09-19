@@ -1,0 +1,11 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp" android:height="120dp"
+    android:viewportWidth="120" android:viewportHeight="120">
+    <!-- BLOKKU emblem: block cluster -->
+    <path android:fillColor="#9B6DFF" android:pathData="M20,20 h20 a6,6 0 0 1 6,6 v20 a6,6 0 0 1 -6,6 h-20 a6,6 0 0 1 -6,-6 v-20 a6,6 0 0 1 6,-6 z"/>
+    <path android:fillColor="#FFA53D" android:pathData="M54,20 h20 a6,6 0 0 1 6,6 v20 a6,6 0 0 1 -6,6 h-20 a6,6 0 0 1 -6,-6 v-20 a6,6 0 0 1 6,-6 z"/>
+    <path android:fillColor="#4DC9FF" android:pathData="M20,54 h20 a6,6 0 0 1 6,6 v20 a6,6 0 0 1 -6,6 h-20 a6,6 0 0 1 -6,-6 v-20 a6,6 0 0 1 6,-6 z"/>
+    <path android:fillColor="#FF5D73" android:pathData="M54,54 h20 a6,6 0 0 1 6,6 v20 a6,6 0 0 1 -6,6 h-20 a6,6 0 0 1 -6,-6 v-20 a6,6 0 0 1 6,-6 z"/>
+    <path android:fillColor="#62D97B" android:pathData="M88,54 h20 a6,6 0 0 1 6,6 v20 a6,6 0 0 1 -6,6 h-20 a6,6 0 0 1 -6,-6 v-20 a6,6 0 0 1 6,-6 z"/>
+    <path android:fillColor="#FFD84D" android:pathData="M88,20 h20 a6,6 0 0 1 6,6 v12 a6,6 0 0 1 -6,6 h-20 a6,6 0 0 1 -6,-6 v-12 a6,6 0 0 1 6,-6 z"/>
+</vector>

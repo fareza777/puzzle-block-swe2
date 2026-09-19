@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Blokku</string>
+
+    <string name="menu_play">Main</string>
+    <string name="menu_classic">Klasik</string>
+    <string name="menu_levels">Level</string>
+    <string name="menu_daily">Harian</string>
+    <string name="menu_missions">Misi</string>
+    <string name="menu_stats">Statistik</string>
+    <string name="menu_themes">Tema</string>
+    <string name="menu_settings">Pengaturan</string>
+    <string name="menu_tutorial">Cara main</string>
+    <string name="daily_reward">Hadiah Harian</string>
+    <string name="claim">Klaim</string>
+    <string name="claimed">Sudah diklaim</string>
+
+    <string name="score">Skor</string>
+    <string name="best">Terbaik</string>
+    <string name="combo">Komba</string>
+    <string name="streak">Streak</string>
+    <string name="paused">Jeda</string>
+    <string name="resume">Lanjut</string>
+    <string name="restart">Ulangi</string>
+    <string name="quit">Keluar</string>
+    <string name="game_over">Permainan Selesai</string>
+    <string name="new_best">Rekor Baru!</string>
+    <string name="continue_game">Lanjutkan</string>
+    <string name="watch_ad_continue">Tonton iklan untuk lanjut</string>
+    <string name="no_thanks">Tidak, terima kasih</string>
+    <string name="level_complete">Level Selesai!</string>
+    <string name="level_failed">Target meleset</string>
+    <string name="next_level">Berikutnya</string>
+    <string name="daily_complete">Harian Selesai!</string>
+    <string name="target">Target</string>
+    <string name="moves_left">Langkah</string>
+    <string name="level">Level</string>
+
+    <string name="goal_score">Capai %1$d poin</string>
+    <string name="goal_lines">Hapus %1$d baris</string>
+    <string name="goal_cells">Pasang %1$d balok</string>
+
+    <string name="power_undo">Urungkan</string>
+    <string name="power_rotate">Putar</string>
+    <string name="power_bomb">Ledak</string>
+    <string name="power_shuffle">Acak</string>
+    <string name="power_empty">Habis — beli di Toko</string>
+    <string name="bomb_hint">Ketuk sel untuk meledakkan area 3×3</string>
+    <string name="rotate_hint">Ketuk balok untuk memutar</string>
+    <string name="undo_done">Langkah diurungkan</string>
+
+    <string name="missions_daily">Misi Harian</string>
+    <string name="missions_achievements">Pencapaian</string>
+    <string name="mission_progress">%1$d / %2$d</string>
+    <string name="reward_coins">+%1$d koin</string>
+    <string name="refresh_in">Misi baru dalam %1$s</string>
+
+    <string name="stats_games">Permainan dimainkan</string>
+    <string name="stats_best_classic">Skor klasik terbaik</string>
+    <string name="stats_lines">Baris dihapus</string>
+    <string name="stats_cells">Balok dipasang</string>
+    <string name="stats_max_combo">Komba terbaik</string>
+    <string name="stats_play_time">Waktu bermain</string>
+    <string name="stats_dailies">Harian selesai</string>
+    <string name="stats_minutes">%1$d mnt</string>
+
+    <string name="themes_title">Koleksi</string>
+    <string name="theme_locked">Buka dengan %1$d</string>
+    <string name="theme_unlocked">Terbuka</string>
+    <string name="theme_using">Dipakai</string>
+    <string name="theme_use">Pakai</string>
+    <string name="not_enough_coins">Koin tidak cukup</string>
+    <string name="free_coins">Koin gratis</string>
+    <string name="watch_ad_coins">Tonton iklan untuk %1$d koin</string>
+
+    <string name="settings_sound">Efek Suara</string>
+    <string name="settings_music">Musik</string>
+    <string name="settings_vibration">Getaran</string>
+    <string name="settings_language">Bahasa</string>
+    <string name="settings_colorblind">Mode buta warna</string>
+    <string name="settings_remove_ads">Hapus iklan</string>
+    <string name="settings_remove_ads_done">Iklan dihapus — terima kasih!</string>
+    <string name="lang_system">Sistem</string>
+    <string name="on">Aktif</string>
+    <string name="off">Mati</string>
+    <string name="back">Kembali</string>
+
+    <string name="tut_1">Seret bentuk balok ke papan.</string>
+    <string name="tut_2">Isi satu baris atau kolom penuh untuk menghapusnya.</string>
+    <string name="tut_3">Hapus berturut-turut untuk kombo. Isi meteran untuk power-up gratis!</string>
+    <string name="tut_4">Permainan berakhir jika tidak ada yang muat. Semoga beruntung!</string>
+    <string name="tut_next">Lanjut</string>
+    <string name="tut_done">Mengerti!</string>
+    <string name="tut_skip">Lewati</string>
+
+    <string name="yes">Ya</string>
+    <string name="no">Tidak</string>
+    <string name="quit_confirm">Keluar dari permainan? Progres ronde ini hilang.</string>
+    <string name="ok">OK</string>
+    <string name="cancel">Batal</string>
+    <string name="coins">Koin</string>
+</resources>

@@ -1,0 +1,270 @@
+package com.fareza.blokku.ui
+
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.RectF
+import com.fareza.blokku.data.Save
+import com.fareza.blokku.render.Anim
+import com.fareza.blokku.render.D
+import com.fareza.blokku.render.Ease
+
+/** Pressable button with squash animation and optional icon glyph. */
+class UiButton(
+    var rect: RectF,
+    var label: String = "",
+    var icon: String = "",
+    var bg: Int = Color.WHITE,
+    var fg: Int = Color.BLACK,
+    var onTap: () -> Unit = {},
+    var textScale: Float = 1f,
+    var radius: Float = -1f,
+    var enabled: Boolean = true,
+    var sublabel: String = "",
+    var inScroll: Boolean = false, // rendered inside a scrolled clip — hit-test needs offset
+) {
+    var pressT = 0f
+    var appear = Anim(0.35f, Ease.outBack)
+    var appearDelay = 0f
+
+    fun contains(x: Float, y: Float) = rect.contains(x, y)
+
+    fun press() { pressT = 1f }
+
+    fun tap(): Boolean {
+        if (!enabled) return false
+        onTap()
+        return true
+    }
+
+    fun update(dt: Float) {
+        appear.update(dt)
+        pressT = (pressT - dt * 6f).coerceAtLeast(0f)
+    }
+
+    fun render(c: Canvas) {
+        val a = appear.v
+        if (a <= 0f) return
+        val cx = rect.centerX()
+        val cy = rect.centerY()
+        val scale = a * (1f - 0.12f * pressT)
+        val rr = if (radius >= 0) radius else D.dp(16f)
+        c.save()
+        c.scale(scale, scale, cx, cy)
+        // shadow
+        D.rect(c, rect.left, rect.top + D.dp(3f), rect.right, rect.bottom + D.dp(4f), D.withAlpha(Color.BLACK, 60), rr)
+        D.gradientRect(c, rect.left, rect.top, rect.right, rect.bottom, D.lighten(bg, 0.10f), D.darken(bg, 0.06f), rr)
+        val alpha = if (enabled) 255 else 110
+        val size = D.sp(17f) * textScale
+        if (icon.isNotEmpty()) {
+            val gap = D.dp(8f)
+            val tw = D.textWidth(label, size) + if (icon.isNotEmpty()) size + gap else 0f
+            val startX = cx - tw / 2f
+            val ty = cy - (D.txt.fontMetrics.run { ascent + descent } / 2f)
+            D.text(c, icon, startX + size / 2f, ty, size, fg, alpha = alpha)
+            D.text(c, label, startX + size + gap + D.textWidth(label, size) / 2f, ty, size, fg, alpha = alpha)
+        } else {
+            if (sublabel.isNotEmpty()) {
+                D.textIn(c, label, RectF(rect.left, rect.top, rect.right, rect.centerY() + D.dp(4f)), size, fg)
+                D.textIn(c, sublabel, RectF(rect.left, rect.centerY() + D.dp(2f), rect.right, rect.bottom + D.dp(6f)), D.sp(11f) * textScale, D.withAlpha(fg, 200), bold = false)
+            } else {
+                D.textIn(c, label, rect, size, fg)
+            }
+        }
+        c.restore()
+    }
+}
+
+/** Small circular icon button (settings, pause, back). */
+class UiIconButton(
+    val cx: Float, val cy: Float, val r: Float,
+    val glyph: String,
+    var bg: Int = D.withAlpha(Color.WHITE, 30),
+    var fg: Int = Color.WHITE,
+    var onTap: () -> Unit = {},
+) {
+    var pressT = 0f
+    fun contains(x: Float, y: Float): Boolean {
+        val dx = x - cx; val dy = y - cy
+        return dx * dx + dy * dy <= (r * 1.5f) * (r * 1.5f)
+    }
+    fun update(dt: Float) { pressT = (pressT - dt * 6f).coerceAtLeast(0f) }
+    fun render(c: Canvas) {
+        val s = 1f - 0.15f * pressT
+        c.save()
+        c.scale(s, s, cx, cy)
+        D.circle(c, cx, cy, r, bg)
+        D.text(c, glyph, cx, cy + r * 0.36f, r * 1.05f, fg)
+        c.restore()
+    }
+}
+
+/** Toggle switch row for settings. */
+class UiToggle(
+    val rect: RectF,
+    val label: String,
+    var get: () -> Boolean,
+    var set: (Boolean) -> Unit,
+    var fg: Int = Color.WHITE,
+    var accent: Int = Color.GREEN,
+) {
+    var animPos = -1f // -1 = uninitialized
+
+    fun contains(x: Float, y: Float) = rect.contains(x, y)
+    fun tap() { set(!get()) }
+    fun animating() = animPos >= 0f && kotlin.math.abs(animPos - (if (get()) 1f else 0f)) > 0.01f
+
+    fun render(c: Canvas) {
+        if (animPos < 0) animPos = if (get()) 1f else 0f
+        val target = if (get()) 1f else 0f
+        animPos += (target - animPos) * 0.25f
+
+        D.text(c, label, rect.left, rect.centerY() + D.sp(15f) * 0.36f, D.sp(15f), fg, android.graphics.Paint.Align.LEFT)
+
+        val tw = D.dp(52f); val th = D.dp(30f)
+        val tr = RectF(rect.right - tw, rect.centerY() - th / 2, rect.right, rect.centerY() + th / 2)
+        D.rect(c, tr.left, tr.top, tr.right, tr.bottom, D.withAlpha(Color.BLACK, 60), th / 2)
+        val trackColor = lerpColor(D.withAlpha(accent, 70), accent, animPos)
+        D.rect(c, tr.left, tr.top, tr.right, tr.bottom, trackColor, th / 2)
+        val knobX = tr.left + th / 2 + (tw - th) * animPos
+        D.circle(c, knobX, tr.centerY(), th / 2 - D.dp(3f), Color.WHITE)
+    }
+
+    private fun lerpColor(a: Int, b: Int, t: Float): Int {
+        return Color.argb(
+            Anim.lerpInt(Color.alpha(a), Color.alpha(b), t),
+            Anim.lerpInt(Color.red(a), Color.red(b), t),
+            Anim.lerpInt(Color.green(a), Color.green(b), t),
+            Anim.lerpInt(Color.blue(a), Color.blue(b), t),
+        )
+    }
+}
+
+/** Coin pill shown at top of menus — tappable to reach shop. */
+class CoinPill(val x: Float, val y: Float, var onTap: () -> Unit = {}) {
+    private val rect = RectF()
+    var bounce = 0f
+    var pulse = 0f
+
+    fun bump() { bounce = 1f }
+    fun contains(px: Float, py: Float) = rect.contains(px, py)
+
+    fun render(c: Canvas) {
+        bounce = (bounce - 0.06f).coerceAtLeast(0f)
+        pulse += 0.03f
+        val s = 1f + 0.15f * bounce
+        val w = D.dp(96f) * s
+        val h = D.dp(34f) * s
+        rect.set(x, y - h / 2, x + w, y + h / 2)
+        D.rect(c, rect.left, rect.top, rect.right, rect.bottom, D.withAlpha(Color.BLACK, 70), h / 2)
+        // coin icon
+        val coinX = rect.left + h * 0.55f
+        D.circle(c, coinX, y, h * 0.32f, 0xFFFFD166.toInt())
+        D.circle(c, coinX, y, h * 0.22f, 0xFFFFE8A0.toInt())
+        D.text(c, "${Save.coins}", coinX + h * 0.42f, y + D.sp(13f) * 0.36f, D.sp(13f), Color.WHITE, android.graphics.Paint.Align.LEFT)
+        D.text(c, "+", rect.right - h * 0.35f, y + D.sp(15f) * 0.36f, D.sp(15f), 0xFF7BE495.toInt())
+    }
+}
+
+/** Floating text that rises and fades (score popups, combo text). */
+class FloatText(var x: Float, var y: Float, val text: String, val color: Int, val size: Float, var life: Float = 1.0f) {
+    var age = 0f
+    var vx = 0f
+    fun update(dt: Float): Boolean {
+        age += dt
+        y -= D.dp(46f) * dt
+        x += vx * dt
+        return age < life
+    }
+    fun render(c: Canvas) {
+        val k = 1f - age / life
+        val scale = if (age < 0.15f) 0.6f + 0.4f * (age / 0.15f) else 1f
+        c.save()
+        c.scale(scale, scale, x, y)
+        D.text(c, text, x, y, size, color, alpha = (255 * k).toInt())
+        c.restore()
+    }
+}
+
+/** Utility glyph drawing for power-up icons etc. */
+object Glyph {
+    fun draw(c: Canvas, kind: String, r: RectF, color: Int) {
+        val cx = r.centerX(); val cy = r.centerY(); val s = r.width() * 0.5f
+        when (kind) {
+            "undo" -> {
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.STROKE
+                D.p.strokeWidth = s * 0.22f
+                c.drawArc(RectF(cx - s * 0.7f, cy - s * 0.7f, cx + s * 0.7f, cy + s * 0.7f), -30f, -260f, false, D.p)
+                D.p.style = android.graphics.Paint.Style.FILL
+                val path = android.graphics.Path()
+                path.moveTo(cx - s * 0.75f, cy - s * 0.15f)
+                path.lineTo(cx - s * 0.15f, cy - s * 0.5f)
+                path.lineTo(cx - s * 0.1f, cy + s * 0.15f)
+                path.close()
+                c.drawPath(path, D.p)
+            }
+            "rotate" -> {
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.STROKE
+                D.p.strokeWidth = s * 0.2f
+                c.drawArc(RectF(cx - s * 0.65f, cy - s * 0.65f, cx + s * 0.65f, cy + s * 0.65f), 40f, 280f, false, D.p)
+                D.p.style = android.graphics.Paint.Style.FILL
+                val path = android.graphics.Path()
+                path.moveTo(cx + s * 0.72f, cy + s * 0.05f)
+                path.lineTo(cx + s * 0.2f, cy + s * 0.42f)
+                path.lineTo(cx + s * 0.1f, cy - s * 0.2f)
+                path.close()
+                c.drawPath(path, D.p)
+            }
+            "bomb" -> {
+                D.circle(c, cx, cy + s * 0.1f, s * 0.62f, color)
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.STROKE
+                D.p.strokeWidth = s * 0.14f
+                c.drawLine(cx + s * 0.3f, cy - s * 0.42f, cx + s * 0.55f, cy - s * 0.68f, D.p)
+                D.p.style = android.graphics.Paint.Style.FILL
+                D.circle(c, cx + s * 0.62f, cy - s * 0.74f, s * 0.16f, 0xFFFFD166.toInt())
+            }
+            "shuffle" -> {
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.STROKE
+                D.p.strokeWidth = s * 0.18f
+                val p1 = android.graphics.Path()
+                p1.moveTo(cx - s * 0.7f, cy - s * 0.35f)
+                p1.cubicTo(cx - s * 0.1f, cy - s * 0.35f, cx + s * 0.1f, cy + s * 0.35f, cx + s * 0.55f, cy + s * 0.35f)
+                c.drawPath(p1, D.p)
+                val p2 = android.graphics.Path()
+                p2.moveTo(cx - s * 0.7f, cy + s * 0.35f)
+                p2.cubicTo(cx - s * 0.1f, cy + s * 0.35f, cx + s * 0.1f, cy - s * 0.35f, cx + s * 0.55f, cy - s * 0.35f)
+                c.drawPath(p2, D.p)
+                D.p.style = android.graphics.Paint.Style.FILL
+                val head = android.graphics.Path()
+                head.moveTo(cx + s * 0.75f, cy - s * 0.35f)
+                head.lineTo(cx + s * 0.4f, cy - s * 0.55f)
+                head.lineTo(cx + s * 0.4f, cy - s * 0.15f)
+                head.close()
+                c.drawPath(head, D.p)
+                val head2 = android.graphics.Path()
+                head2.moveTo(cx + s * 0.75f, cy + s * 0.35f)
+                head2.lineTo(cx + s * 0.4f, cy + s * 0.15f)
+                head2.lineTo(cx + s * 0.4f, cy + s * 0.55f)
+                head2.close()
+                c.drawPath(head2, D.p)
+            }
+            "coin" -> {
+                D.circle(c, cx, cy, s * 0.7f, 0xFFFFD166.toInt())
+                D.circle(c, cx, cy, s * 0.45f, 0xFFFFE8A0.toInt())
+            }
+            "play" -> {
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.FILL
+                val path = android.graphics.Path()
+                path.moveTo(cx - s * 0.3f, cy - s * 0.5f)
+                path.lineTo(cx + s * 0.5f, cy)
+                path.lineTo(cx - s * 0.3f, cy + s * 0.5f)
+                path.close()
+                c.drawPath(path, D.p)
+            }
+        }
+    }
+}
