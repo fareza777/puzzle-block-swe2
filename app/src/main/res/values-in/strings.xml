@@ -6,6 +6,8 @@
     <string name="menu_classic">Klasik</string>
     <string name="menu_levels">Level</string>
     <string name="menu_daily">Harian</string>
+    <string name="menu_classic_sub">Puzzle tanpa batas</string>
+    <string name="menu_stat_games">Main</string>
     <string name="menu_missions">Misi</string>
     <string name="menu_stats">Statistik</string>
     <string name="menu_themes">Tema</string>

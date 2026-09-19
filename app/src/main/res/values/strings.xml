@@ -7,6 +7,8 @@
     <string name="menu_classic">Classic</string>
     <string name="menu_levels">Levels</string>
     <string name="menu_daily">Daily</string>
+    <string name="menu_classic_sub">Endless puzzle</string>
+    <string name="menu_stat_games">Games</string>
     <string name="menu_missions">Missions</string>
     <string name="menu_stats">Stats</string>
     <string name="menu_themes">Themes</string>

@@ -73,13 +73,17 @@ class UiButton(
             val gap = D.dp(9f)
             val tw = D.textWidth(label, size) + size + gap
             val startX = cx - tw / 2f
-            val ty = cy - (D.txt.fontMetrics.run { ascent + descent } / 2f)
+            val baseY = if (sublabel.isNotEmpty()) cy - D.dp(8f) else cy
+            val ty = baseY - (D.txt.fontMetrics.run { ascent + descent } / 2f)
             // icon in a tinted chip
             val chipR = size * 0.78f
-            D.circle(c, startX + size / 2f, cy, chipR, D.withAlpha(fg, if (fg == Color.WHITE) 45 else 60))
-            D.rectStroke(c, startX + size / 2f - chipR, cy - chipR, startX + size / 2f + chipR, cy + chipR, D.withAlpha(fg, 70), 1.2f, chipR)
+            D.circle(c, startX + size / 2f, baseY, chipR, D.withAlpha(fg, if (fg == Color.WHITE) 45 else 60))
+            D.rectStroke(c, startX + size / 2f - chipR, baseY - chipR, startX + size / 2f + chipR, baseY + chipR, D.withAlpha(fg, 70), 1.2f, chipR)
             D.text(c, icon, startX + size / 2f, ty, size * 0.92f, fg, alpha = alpha)
             D.text(c, label, startX + size + gap + D.textWidth(label, size) / 2f, ty, size, fg, alpha = alpha)
+            if (sublabel.isNotEmpty()) {
+                D.text(c, sublabel, cx, rect.bottom - D.dp(11f), D.sp(11f) * textScale, D.withAlpha(fg, 215), bold = false, alpha = alpha)
+            }
         } else {
             if (sublabel.isNotEmpty()) {
                 D.textIn(c, label, RectF(rect.left, rect.top, rect.right, rect.centerY() + D.dp(4f)), size, fg)

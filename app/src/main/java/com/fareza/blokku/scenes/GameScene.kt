@@ -62,6 +62,12 @@ class GameScene(
     private var snapRow = -1
     private var snapCol = -1
     private var snapFits = false
+    // where inside the piece bounds the finger grabbed it (0..1)
+    private var grabFracX = 0.5f
+    // smoothed render position + grow-from-tray scale for the lifted piece
+    private var dragVisX = 0f
+    private var dragVisY = 0f
+    private var dragScale = 0f
     private var downX = 0f
     private var downY = 0f
     private var downTime = 0L
@@ -182,6 +188,24 @@ class GameScene(
         }
         if (overlay != Overlay.NONE) overlayAnim.update(dt)
         if (overlay == Overlay.LEVEL_COMPLETE) starAnimT += dt
+        updateDragVisual(dt)
+    }
+
+    /** Smooth-follow the lifted piece: docks onto the snapped cell when valid,
+     * floats above the finger otherwise. What you see is where it lands. */
+    private fun updateDragVisual(dt: Float) {
+        if (dragIndex < 0) return
+        val p = engine.tray[dragIndex] ?: return
+        dragScale = (dragScale + dt * 7f).coerceAtMost(1f)
+        val cur = trayCell + (cell - trayCell) * Ease.outCubic(dragScale)
+        val pw = p.cols * cur
+        val ph = p.rows * cur
+        val docked = snapFits && snapRow >= 0 && snapCol >= 0
+        val tx = if (docked) boardRect.left + snapCol * cell else dragX - pw * grabFracX
+        val ty = if (docked) boardRect.top + snapRow * cell else dragY - dragOffY - ph / 2f
+        val k = min(1f, dt * 22f)
+        dragVisX += (tx - dragVisX) * k
+        dragVisY += (ty - dragVisY) * k
     }
 
     override fun wantsFrame(): Boolean =
@@ -219,7 +243,16 @@ class GameScene(
                         dragIndex = i
                         dragX = e.x
                         dragY = e.y
-                        dragOffY = D.dp(72f)
+                        dragOffY = D.dp(80f)
+                        // preserve the grab point inside the piece so it
+                        // doesn't jump to center under the finger
+                        val p0 = engine.tray[i]
+                        val slotCx = (host.width / 3f) * i + host.width / 6f
+                        val pw0 = (p0?.cols ?: 1) * trayCell
+                        grabFracX = ((e.x - (slotCx - pw0 / 2f)) / pw0).coerceIn(0f, 1f)
+                        dragScale = 0f
+                        dragVisX = e.x - pw0 * grabFracX
+                        dragVisY = e.y - dragOffY - (p0?.rows ?: 1) * trayCell / 2f
                         Audio.play("pickup")
                         Haptic.tick()
                         updateSnap()
@@ -264,8 +297,8 @@ class GameScene(
 
     private fun updateSnap() {
         val p = engine.tray[dragIndex] ?: return
-        // piece top-left in board coords (finger holds piece center, offset up)
-        val px = dragX - p.cols * cell / 2f
+        // piece top-left in board coords (finger keeps its grab point, offset up)
+        val px = dragX - p.cols * cell * grabFracX
         val py = dragY - dragOffY - p.rows * cell / 2f
         snapCol = ((px - boardRect.left) / cell).roundToInt()
         snapRow = ((py - boardRect.top) / cell).roundToInt()
@@ -736,22 +769,23 @@ class GameScene(
     private fun renderDrag(c: Canvas) {
         if (dragIndex < 0) return
         val p = engine.tray[dragIndex] ?: return
-        val w = p.cols * cell
-        val h = p.rows * cell
-        val l0 = dragX - w / 2f
-        val t0 = dragY - dragOffY - h / 2f
+        val cur = trayCell + (cell - trayCell) * Ease.outCubic(dragScale)
+        val l0 = dragVisX
+        val t0 = dragVisY
+        val docked = snapFits && snapRow >= 0 && snapCol >= 0
+        val liftShadow = if (docked) D.dp(2f) else D.dp(7f)
         // lift shadow
         for (pc in p.cells) {
             val pr = pc shr 4; val pcx = pc and 15
-            val l = l0 + pcx * cell
-            val t = t0 + pr * cell
-            D.blockCell(c, l + cell * 0.05f, t + cell * 0.05f + D.dp(6f), l + cell * 0.95f, t + cell * 0.95f + D.dp(6f), Color.BLACK, cell * 0.2f, 60)
+            val l = l0 + pcx * cur
+            val t = t0 + pr * cur
+            D.blockCell(c, l + cur * 0.05f, t + cur * 0.05f + liftShadow, l + cur * 0.95f, t + cur * 0.95f + liftShadow, Color.BLACK, cur * 0.2f, if (docked) 30 else 60)
         }
         for (pc in p.cells) {
             val pr = pc shr 4; val pcx = pc and 15
-            val l = l0 + pcx * cell + cell * 0.05f
-            val t = t0 + pr * cell + cell * 0.05f
-            D.blockCell(c, l, t, l + cell * 0.9f, t + cell * 0.9f, cellColor(p.colorIndex + 1), cell * 0.2f)
+            val l = l0 + pcx * cur + cur * 0.05f
+            val t = t0 + pr * cur + cur * 0.05f
+            D.blockCell(c, l, t, l + cur * 0.9f, t + cur * 0.9f, cellColor(p.colorIndex + 1), cur * 0.2f)
         }
     }
 
