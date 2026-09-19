@@ -58,11 +58,6 @@ class GameScene(
 
     private var pauseBtn: UiIconButton? = null
 
-    // ---- hold slot + next preview rail (left of the tray) ----
-    private var holdRect = RectF()
-    private var nextRects = arrayOfNulls<RectF>(3)
-    private var railW = 0f
-    private var holdPop = 0f   // pop anim when a piece lands in hold
     private var zenReliefSeen = 0
     private var contractChipT = 0f // pulse when contract appears/completes
 
@@ -183,7 +178,6 @@ class GameScene(
 
     private fun computeLayout() {
         val w = host.width.toFloat()
-        val h = host.height.toFloat()
         hudTop = host.safeTop + D.dp(34f)
         boardRect = host.boardArea()
         // shift board down a bit for goal/moves line in level modes
@@ -201,27 +195,19 @@ class GameScene(
         }
 
         trayCell = cell * 0.62f
-        trayY = powerY + powerSize + D.dp(20f)
-
-        // left rail: HOLD card on top, NEXT previews stacked under it
-        railW = w * 0.19f
-        val railX = D.dp(8f)
-        val trayTop = trayY
-        val trayH = h - trayTop - D.dp(10f)
-        holdRect = RectF(railX, trayTop + D.dp(4f), railX + railW - D.dp(6f), trayTop + trayH * 0.48f)
-        val nCellH = (trayH - holdRect.height() - D.dp(18f)) / 3f
-        for (i in 0..2) {
-            val t = holdRect.bottom + D.dp(10f) + nCellH * i
-            nextRects[i] = RectF(railX + D.dp(4f), t, railX + railW - D.dp(10f), t + nCellH - D.dp(3f))
-        }
+        // a row stays reserved between the power labels and the tray for the
+        // contract chip so it never overlaps either of them
+        trayY = powerY + powerSize + D.dp(20f) + D.dp(30f)
 
         meterRect = RectF(w / 2f - D.dp(76f), hudTop + D.dp(52f), w / 2f + D.dp(76f), hudTop + D.dp(64f))
         coinPill = null
     }
 
-    /** Tray slot width — the tray shares its row with the hold/next rail. */
-    private fun traySlotW() = (host.width - railW - D.dp(8f)) / 3f
-    private fun traySlotCx(i: Int) = railW + traySlotW() * i + traySlotW() / 2f
+    private fun traySlotW() = host.width / 3f
+    private fun traySlotCx(i: Int) = traySlotW() * i + traySlotW() / 2f
+
+    /** Zen swaps the theme accent for a calm mint so the mode reads differently. */
+    private fun accent(): Int = if (engine.mode == Mode.ZEN) 0xFF63E6BE.toInt() else D.color(theme.accent)
 
     override fun onResume() {
         computeLayout()
@@ -272,7 +258,7 @@ class GameScene(
         // hint ghost timer
         if (hintT > 0f) { hintT -= dt; if (hintT <= 0f) hintMove = null }
         // danger breathing
-        if (fitsRemaining <= 4 && overlay == Overlay.NONE) dangerPulse += dt * 4f else dangerPulse = 0f
+        if (fitsRemaining <= 4 && overlay == Overlay.NONE && engine.mode != Mode.ZEN) dangerPulse += dt * 4f else dangerPulse = 0f
         // hold-to-undo: after 0.45s, repeats every 0.18s
         if (undoHeld) {
             undoHoldT += dt
@@ -300,12 +286,11 @@ class GameScene(
                 afterMove()
             }
         }
-        holdPop = (holdPop - dt * 4f).coerceAtLeast(0f)
         contractChipT = (contractChipT - dt).coerceAtLeast(0f)
         // zen auto-relief notice
         if (engine.zenReliefCount > zenReliefSeen) {
             zenReliefSeen = engine.zenReliefCount
-            addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.3f, s(R.string.zen_refresh), D.color(theme.accent), D.sp(15f))
+            addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.3f, s(R.string.zen_refresh), accent(), D.sp(15f))
             Audio.play("shuffle", 0.9f)
             boardShake = 0.2f
         }
@@ -376,7 +361,7 @@ class GameScene(
             dragIndex >= 0 || retPiece != null || gameOverDelay > 0 || overlayAnim.let { !it.done && overlay != Overlay.NONE } ||
             enterAnim.t < enterAnim.duration || trayPop.any { it < 1f } ||
             feverBannerT > 0 || perfectBannerT > 0 || engine.feverT > 0 ||
-            hintT > 0 || dangerPulse > 0 || undoHeld || holdPop > 0 || contractChipT > 0 ||
+            hintT > 0 || dangerPulse > 0 || undoHeld || contractChipT > 0 ||
             (engine.timeLimitSec > 0 && overlay == Overlay.NONE && !engine.gameOver) ||
             (overlay == Overlay.LEVEL_COMPLETE && starAnimT < 2f)
 
@@ -473,29 +458,6 @@ class GameScene(
         val piece = engine.tray[i]
         dragIndex = -1
         dragPointerId = -1
-        // dropped over the HOLD card? park the piece there (or swap with the held one)
-        if (holdRect.contains(dragX, dragY - dragOffY) || holdRect.contains(dragX, dragY)) {
-            if (piece != null && engine.hold(i)) {
-                holdPop = 1f
-                Audio.play("pickup")
-                Haptic.soft()
-                refreshDanger()
-                saveRun()
-            } else {
-                Audio.play("invalid")
-                Haptic.error()
-            }
-            if (engine.tray[i] != null) {
-                retPiece = engine.tray[i]
-                retX0 = holdRect.centerX() - retPiece!!.cols * trayCell / 2f; retY0 = holdRect.centerY()
-                retX = retX0; retY = retY0
-                retX1 = traySlotCx(i) - retPiece!!.cols * trayCell / 2f
-                retY1 = trayY + (host.height - trayY - D.dp(10f)) / 2f - retPiece!!.rows * trayCell / 2f
-                retT = 0f
-                host.wake()
-            }
-            return
-        }
         if (snapFits && snapRow >= 0 && snapCol >= 0) {
             doPlace(i, snapRow, snapCol)
         } else {
@@ -580,7 +542,7 @@ class GameScene(
             }
             addFloat(
                 boardRect.centerX(), boardRect.top + boardRect.height() * 0.4f,
-                "+${res.gained}", D.color(theme.accent), D.sp(30f),
+                "+${res.gained}", accent(), D.sp(30f),
             )
             Missions.track(MissionType.LINES_TOTAL, res.lines)
             Missions.track(MissionType.COMBO_ONCE, res.comboCount)
@@ -887,7 +849,7 @@ class GameScene(
                 cellColor(preBoard?.get(cc) ?: 1), count = 5, speed = D.dp(240f), size = D.dp(9f),
             )
         }
-        particles.ring(boardRect.left + (cIdx + 0.5f) * cell, boardRect.top + (r + 0.5f) * cell, D.color(theme.accent))
+        particles.ring(boardRect.left + (cIdx + 0.5f) * cell, boardRect.top + (r + 0.5f) * cell, accent())
         creditGems(boardRect.left + (cIdx + 0.5f) * cell, boardRect.top + (r + 0.5f) * cell)
         Missions.track(MissionType.USE_POWERUPS, 1)
         afterMove()
@@ -916,7 +878,7 @@ class GameScene(
             PowerKind.SHUFFLE -> s(R.string.power_shuffle)
             PowerKind.HINT -> s(R.string.power_hint)
         }
-        addFloat(boardRect.centerX(), meterRect.bottom + D.dp(24f), "+1 $label · +5 ${s(R.string.coins)}", D.color(theme.accent), D.sp(16f))
+        addFloat(boardRect.centerX(), meterRect.bottom + D.dp(24f), "+1 $label · +5 ${s(R.string.coins)}", accent(), D.sp(16f))
         coinFx()
     }
 
@@ -984,7 +946,7 @@ class GameScene(
         val w = host.width.toFloat()
         pauseBtn?.render(c)
         // score block: small caps label over big number
-        D.labelText(c, s(R.string.score), w / 2f, hudTop - D.sp(4f), D.sp(10f), D.withAlpha(D.color(theme.textPrimary), 160))
+        D.labelText(c, s(if (engine.mode == Mode.ZEN) R.string.flow_label else R.string.score), w / 2f, hudTop - D.sp(4f), D.sp(10f), D.withAlpha(D.color(theme.textPrimary), 160))
         D.text(c, "${engine.score}", w / 2f, hudTop + D.sp(22f), D.sp(30f), D.color(theme.textPrimary))
         val sub = when (engine.mode) {
             Mode.CLASSIC -> "${s(R.string.best)} ${max(Save.bestClassic, engine.score)}"
@@ -1007,11 +969,11 @@ class GameScene(
         val fill = engine.meter / 100f
         if (fill > 0) {
             val fr = mr.left + 3 + (mr.width() - 6) * fill
-            val c1 = if (meterFlash > 0) Color.WHITE else D.lighten(D.color(theme.accent), 0.15f)
-            val c2 = if (meterFlash > 0) Color.WHITE else D.darken(D.color(theme.accent), 0.12f)
+            val c1 = if (meterFlash > 0) Color.WHITE else D.lighten(accent(), 0.15f)
+            val c2 = if (meterFlash > 0) Color.WHITE else D.darken(accent(), 0.12f)
             D.gradientRect(c, mr.left + 3, mr.top + 3, fr, mr.bottom - 3, c1, c2, mr.height() / 2)
         }
-        if (meterFlash > 0) D.glowCircle(c, mr.centerX(), mr.centerY(), D.dp(60f) * meterFlash, D.color(theme.accent), (120 * meterFlash).toInt())
+        if (meterFlash > 0) D.glowCircle(c, mr.centerX(), mr.centerY(), D.dp(60f) * meterFlash, accent(), (120 * meterFlash).toInt())
         // Fever Rush active — meter pill becomes a ×2 countdown chip
         if (engine.feverT > 0f) {
             val fp = 0.7f + 0.3f * kotlin.math.sin(host.globalTime * 10f)
@@ -1086,6 +1048,12 @@ class GameScene(
         c.save()
         c.scale(0.92f + 0.08f * a, 0.92f + 0.08f * a, cx, cy)
 
+        // zen mode: calm breathing halo around the board
+        if (engine.mode == Mode.ZEN) {
+            val breathe = 0.5f + 0.5f * kotlin.math.sin(host.globalTime * 1.4f)
+            D.glowCircle(c, cx, cy, boardRect.width() * (0.56f + 0.05f * breathe), accent(), (26 + 22 * breathe).toInt())
+        }
+
         // board panel — elevated card
         val pad = D.dp(7f)
         D.card(c, boardRect.left - pad, boardRect.top - pad, boardRect.right + pad, boardRect.bottom + pad, D.color(theme.boardBg), D.dp(18f))
@@ -1106,7 +1074,7 @@ class GameScene(
                 c,
                 boardRect.left + (bc - 1) * cell, boardRect.top + (br - 1) * cell,
                 boardRect.left + (bc + 2) * cell, boardRect.top + (br + 2) * cell,
-                D.withAlpha(D.color(theme.accent), 60), cell * 0.2f,
+                D.withAlpha(accent(), 60), cell * 0.2f,
             )
         }
 
@@ -1121,7 +1089,7 @@ class GameScene(
                 val cr = cc / 9; val ccx = cc % 9
                 val l = boardRect.left + ccx * cell + cell * 0.05f
                 val t = boardRect.top + cr * cell + cell * 0.05f
-                D.rect(c, l, t, l + cell * 0.9f, t + cell * 0.9f, D.withAlpha(D.color(theme.accent), (150 * pulse).toInt()), cell * 0.18f)
+                D.rect(c, l, t, l + cell * 0.9f, t + cell * 0.9f, D.withAlpha(accent(), (150 * pulse).toInt()), cell * 0.18f)
             }
             // ghost cells
             val ga = (160 + 60 * pulse).toInt()
@@ -1220,66 +1188,11 @@ class GameScene(
         D.p.style = Paint.Style.FILL
     }
 
-    /** Left rail: HOLD card + stacked NEXT previews. */
-    private fun renderHoldNext(c: Canvas, trayTop: Float, trayH: Float) {
-        // HOLD card
-        val popK = 1f + 0.12f * holdPop
-        c.save()
-        c.scale(popK, popK, holdRect.centerX(), holdRect.centerY())
-        val locked = engine.holdLocked
-        val hovering = dragIndex >= 0 && (holdRect.contains(dragX, dragY - dragOffY) || holdRect.contains(dragX, dragY))
-        if (hovering) {
-            D.gradientRect(c, holdRect.left, holdRect.top, holdRect.right, holdRect.bottom, D.lighten(D.color(theme.accent), 0.05f), D.darken(D.color(theme.accent), 0.1f), D.dp(14f))
-            D.rectStroke(c, holdRect.left + 0.8f, holdRect.top + 0.8f, holdRect.right - 0.8f, holdRect.bottom - 0.8f, D.withAlpha(Color.WHITE, 220), 1.6f, D.dp(14f))
-        } else {
-            D.card(c, holdRect.left, holdRect.top, holdRect.right, holdRect.bottom, D.color(theme.boardBg), D.dp(14f), elevated = !locked)
-            D.rectStroke(c, holdRect.left + 0.8f, holdRect.top + 0.8f, holdRect.right - 0.8f, holdRect.bottom - 0.8f, D.withAlpha(if (locked) 0xFF777788.toInt() else D.color(theme.accent), if (locked) 60 else 130), 1.2f, D.dp(14f))
-        }
-        D.labelTextFit(c, s(R.string.hold_label), holdRect.centerX(), holdRect.top + D.dp(11f), D.sp(8.5f), holdRect.width() - D.dp(8f), D.withAlpha(if (hovering) Color.WHITE else D.color(theme.textPrimary), if (locked) 120 else 200), spacing = 0.14f)
-        val hp = engine.holdPiece
-        if (hp == null) {
-            Glyph.draw(c, "hold", RectF(holdRect.centerX() - D.dp(11f), holdRect.centerY() - D.dp(2f), holdRect.centerX() + D.dp(11f), holdRect.centerY() + D.dp(20f)), D.withAlpha(D.color(theme.textPrimary), 90))
-        } else {
-            val hcell = min(holdRect.width() / (hp.cols + 0.6f), (holdRect.height() - D.dp(22f)) / (hp.rows + 0.6f))
-            val pw = hp.cols * hcell; val ph = hp.rows * hcell
-            val ox = holdRect.centerX() - pw / 2f; val oy = holdRect.top + D.dp(18f) + (holdRect.height() - D.dp(18f) - ph) / 2f
-            val alpha = if (locked) 120 else 255
-            for (pc in hp.cells) {
-                val pr = pc shr 4; val pcc = pc and 15
-                val l = ox + pcc * hcell; val t = oy + pr * hcell
-                D.blockCell(c, l, t, l + hcell * 0.9f, t + hcell * 0.9f, cellColor(hp.colorIndex + 1), hcell * 0.2f, alpha)
-                if (pc == engine.holdGem) drawGem(c, l + hcell * 0.45f, t + hcell * 0.45f, hcell * 0.24f)
-                if (pc == engine.holdBomb) drawBombCell(c, l + hcell * 0.45f, t + hcell * 0.45f, hcell * 0.36f)
-                if (pc == engine.holdMult) drawMultCell(c, l + hcell * 0.45f, t + hcell * 0.45f, hcell * 0.36f)
-            }
-        }
-        c.restore()
-
-        // NEXT previews — tiny silhouettes of the upcoming tray
-        D.labelText(c, s(R.string.next_label), (holdRect.left + holdRect.right) / 2f, holdRect.bottom + D.dp(6f), D.sp(7.5f), D.withAlpha(D.color(theme.textPrimary), 110), spacing = 0.14f)
-        for (i in 0..2) {
-            val nr = nextRects[i] ?: continue
-            val np = engine.nextTray[i] ?: continue
-            D.insetCell(c, nr.left, nr.top, nr.right, nr.bottom, D.withAlpha(D.color(theme.cellEmpty), 80), D.dp(10f))
-            val ncell = min(nr.width() / (np.cols + 0.4f), nr.height() / (np.rows + 0.4f)) * 0.9f
-            val pw = np.cols * ncell; val ph = np.rows * ncell
-            val ox = nr.centerX() - pw / 2f; val oy = nr.centerY() - ph / 2f
-            for (pc in np.cells) {
-                val pr = pc shr 4; val pcc = pc and 15
-                val l = ox + pcc * ncell; val t = oy + pr * ncell
-                D.blockCell(c, l, t, l + ncell * 0.9f, t + ncell * 0.9f, cellColor(np.colorIndex + 1), ncell * 0.2f, 150)
-                if (pc == engine.nextGem[i]) drawGem(c, l + ncell * 0.45f, t + ncell * 0.45f, ncell * 0.22f)
-                if (pc == engine.nextBomb[i]) drawBombCell(c, l + ncell * 0.45f, t + ncell * 0.45f, ncell * 0.32f)
-                if (pc == engine.nextMult[i]) drawMultCell(c, l + ncell * 0.45f, t + ncell * 0.45f, ncell * 0.32f)
-            }
-        }
-    }
-
     /** Active micro-contract chip above the tray + combo-grace sliver. */
     private fun renderContractChip(c: Canvas, trayTop: Float) {
         val ct = engine.contract
         val chipH = D.dp(26f)
-        val cy = trayTop - chipH - D.dp(6f)
+        val cy = trayTop - chipH - D.dp(4f)
         if (ct != null && overlay == Overlay.NONE) {
             val text = contractText(ct)
             val pulse = if (contractChipT > 0f) 1f + contractChipT * 0.15f else 1f
@@ -1288,10 +1201,10 @@ class GameScene(
             val chipW = min(boardRect.width(), D.textWidth(text, D.sp(11f)) + D.dp(30f))
             val l = boardRect.centerX() - chipW / 2f
             val urgent = ct.movesLeft <= 2
-            val bg = if (urgent) D.withAlpha(0xFFFF5D73.toInt(), 60) else D.withAlpha(D.color(theme.accent), 40)
+            val bg = if (urgent) D.withAlpha(0xFFFF5D73.toInt(), 60) else D.withAlpha(accent(), 40)
             D.rect(c, l, cy, l + chipW, cy + chipH, bg, chipH / 2)
-            D.rectStroke(c, l + 0.6f, cy + 0.6f, l + chipW - 0.6f, cy + chipH - 0.6f, D.withAlpha(if (urgent) 0xFFFF5D73.toInt() else D.color(theme.accent), 150), 1.2f, chipH / 2)
-            Glyph.draw(c, "target", RectF(l + D.dp(8f), cy + D.dp(6f), l + D.dp(8f) + D.dp(14f), cy + D.dp(20f)), D.withAlpha(if (urgent) 0xFFFF5D73.toInt() else D.color(theme.accent), 230))
+            D.rectStroke(c, l + 0.6f, cy + 0.6f, l + chipW - 0.6f, cy + chipH - 0.6f, D.withAlpha(if (urgent) 0xFFFF5D73.toInt() else accent(), 150), 1.2f, chipH / 2)
+            Glyph.draw(c, "target", RectF(l + D.dp(8f), cy + D.dp(6f), l + D.dp(8f) + D.dp(14f), cy + D.dp(20f)), D.withAlpha(if (urgent) 0xFFFF5D73.toInt() else accent(), 230))
             D.textFit(c, text + "  ${ct.prog}/${ct.target}", boardRect.centerX() + D.dp(8f), cy + chipH * 0.68f, D.sp(11f), chipW - D.dp(30f), D.color(theme.textPrimary))
             c.restore()
         }
@@ -1365,13 +1278,12 @@ class GameScene(
         val slotW = traySlotW()
         val trayTop = trayY
         val trayH = host.height - trayTop - D.dp(10f)
-        renderHoldNext(c, trayTop, trayH)
         for (i in 0..2) {
-            val cx = railW + slotW * i + slotW / 2f
+            val cx = slotW * i + slotW / 2f
             val cy = trayTop + trayH / 2f
             val p = engine.tray[i]
             // slot card — always visible for visual rhythm
-            val slotRect = RectF(railW + slotW * i + D.dp(7f), trayTop + D.dp(4f), railW + slotW * (i + 1) - D.dp(7f), trayTop + trayH)
+            val slotRect = RectF(slotW * i + D.dp(7f), trayTop + D.dp(4f), slotW * (i + 1) - D.dp(7f), trayTop + trayH)
             trayRects[i] = slotRect
             val sr = RectF(slotRect.left, slotRect.top + slotRect.height() * 0.14f, slotRect.right, slotRect.bottom - slotRect.height() * 0.1f)
             if (p == null) {
@@ -1397,7 +1309,7 @@ class GameScene(
                 if (pc == engine.trayMult[i]) drawMultCell(c, l + pc0 * 0.45f * popK, t + pc0 * 0.45f * popK, pc0 * 0.36f)
             }
             if (rotateArmed && fitsAny) {
-                D.rectStroke(c, slotRect.left, slotRect.top, slotRect.right, slotRect.bottom, D.color(theme.accent), D.dp(2f), D.dp(14f))
+                D.rectStroke(c, slotRect.left, slotRect.top, slotRect.right, slotRect.bottom, accent(), D.dp(2f), D.dp(14f))
             }
         }
         // contract chip + combo-grace bar sit above the tray
@@ -1414,8 +1326,8 @@ class GameScene(
                     val gr = hr + (pc shr 4); val gc = hc + (pc and 15)
                     val l = boardRect.left + gc * cell + cell * 0.08f
                     val t = boardRect.top + gr * cell + cell * 0.08f
-                    D.blockCell(c, l, t, l + cell * 0.84f, t + cell * 0.84f, D.color(theme.accent), cell * 0.2f, (120 * pulse).toInt())
-                    D.rectStroke(c, l, t, l + cell * 0.84f, t + cell * 0.84f, D.withAlpha(D.color(theme.accent), (230 * pulse).toInt()), 1.6f, cell * 0.2f)
+                    D.blockCell(c, l, t, l + cell * 0.84f, t + cell * 0.84f, accent(), cell * 0.2f, (120 * pulse).toInt())
+                    D.rectStroke(c, l, t, l + cell * 0.84f, t + cell * 0.84f, D.withAlpha(accent(), (230 * pulse).toInt()), 1.6f, cell * 0.2f)
                 }
                 // glow ring on the tray slot that owns the suggested piece
                 trayRects[slot]?.let { sr ->

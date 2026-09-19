@@ -172,9 +172,7 @@
     <string name="puzzle_complete">Puzzle Terpecahkan!</string>
     <string name="zen_refresh">Papan diperbarui — lanjut!</string>
     <string name="rush_done">Waktu habis!</string>
-    <string name="hold_label">SIMPAN</string>
-    <string name="next_label">BERIKUT</string>
-    <string name="hold_empty">Taruh balok di sini untuk disimpan</string>
+    <string name="flow_label">FLOW</string>
     <string name="contract_lines">%1$d garis dlm %2$d langkah</string>
     <string name="contract_combo">Kombo %1$d× dlm %2$d langkah</string>
     <string name="contract_bomb">Ledakkan %1$d bom</string>
@@ -193,5 +191,5 @@
     <string name="stats_snug">Pas rapat</string>
     <string name="stats_mono">Garis mono</string>
     <string name="grace_tip">Maaf kombo — satu salah diampuni</string>
-    <string name="powers_hint2">SIMPAN balok untuk dipakai nanti\nsel ×3 melipatgandakan skor garis\nMONO: garis satu warna bayar ekstra\nPAS: kemas balok rapat untuk bonus</string>
+    <string name="powers_hint2">selesaikan KONTRAK untuk koin bonus\nsel ×3 melipatgandakan skor garis\nMONO: garis satu warna bayar ekstra\nPAS: kemas balok rapat untuk bonus</string>
 </resources>

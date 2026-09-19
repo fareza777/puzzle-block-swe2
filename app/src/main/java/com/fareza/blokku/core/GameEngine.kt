@@ -274,7 +274,9 @@ class GameEngine(
         } else -1
     }
 
-    private fun nextPiece(): Piece = Shapes.randomPiece(rng, colorCount, bigBias)
+    private fun nextPiece(): Piece =
+        // Zen stays gentle: small shapes dominate so the board rarely jams
+        Shapes.randomPiece(rng, colorCount, bigBias, if (mode == Mode.ZEN) 1.6f else 0f)
 
     /** Re-roll tray entries that don't fit (bounded) — used after preset board fills. */
     fun ensureTrayFits() {
@@ -472,10 +474,10 @@ class GameEngine(
         return PlaceResult(true, res.clearCells, res.lineCount, gained, combo, meterFullNow, gems, perfect, boom, bombsN, monoLines, snug, multHit)
     }
 
-    // ---------- micro-contracts (classic & zen) ----------
+    // ---------- micro-contracts (classic only — Zen is pressure-free) ----------
 
     private fun tickContract(lines: Int, bombsN: Int, snug: Boolean) {
-        if (mode != Mode.CLASSIC && mode != Mode.ZEN) return
+        if (mode != Mode.CLASSIC) return
         val c = contract
         if (c == null) {
             if (score >= nextContractAt) {

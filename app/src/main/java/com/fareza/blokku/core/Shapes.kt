@@ -53,17 +53,21 @@ object Shapes {
     private val totalWeight = ALL.sumOf { it.weight }
 
     /**
-     * Weighted random piece. `bigBias` (>0) adds weight to chunky shapes —
-     * classic mode raises it with score so runs get harder over time.
+     * Weighted random piece. `bigBias` adds weight to chunky shapes (classic
+     * ramps it with score); `smallBias` favours small shapes — Zen uses it so
+     * trays stay gentle and almost always placeable.
      */
-    fun randomPiece(rng: Random, colorCount: Int, bigBias: Float = 0f): Piece {
-        var total = totalWeight.toFloat()
-        if (bigBias > 0f) for (d in ALL) if (d.coords.size >= 5) total += bigBias
+    fun randomPiece(rng: Random, colorCount: Int, bigBias: Float = 0f, smallBias: Float = 0f): Piece {
+        fun w(d: Def): Float {
+            val b = if (d.coords.size >= 5) bigBias else if (d.coords.size <= 3) smallBias else 0f
+            return (d.weight + b).coerceAtLeast(0.05f)
+        }
+        var total = 0f
+        for (d in ALL) total += w(d)
         var pick = rng.nextFloat() * total
         var idx = ALL.size - 1
         for (i in ALL.indices) {
-            val w = ALL[i].weight + (if (ALL[i].coords.size >= 5) bigBias else 0f)
-            pick -= w
+            pick -= w(ALL[i])
             if (pick < 0) { idx = i; break }
         }
         return Piece.of(ALL[idx].coords, rng.nextInt(colorCount))

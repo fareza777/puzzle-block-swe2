@@ -183,10 +183,7 @@
     <string name="zen_refresh">Board refreshed — keep going!</string>
     <string name="rush_done">Time\'s up!</string>
 
-    <!-- hold & preview -->
-    <string name="hold_label">HOLD</string>
-    <string name="next_label">NEXT</string>
-    <string name="hold_empty">Drop a piece here to save it</string>
+    <string name="flow_label">FLOW</string>
 
     <!-- contracts -->
     <string name="contract_lines">%1$d lines in %2$d moves</string>
@@ -211,5 +208,5 @@
     <string name="stats_snug">Snug fits</string>
     <string name="stats_mono">Mono lines</string>
     <string name="grace_tip">Combo grace — one slip spared</string>
-    <string name="powers_hint2">HOLD a piece to save it for later\n×3 cells triple a line\'s score\nMONO: a line of one color pays extra\nSNUG: pack a piece tight for bonus</string>
+    <string name="powers_hint2">finish CONTRACTS for bonus coins\n×3 cells triple a line\'s score\nMONO: a line of one color pays extra\nSNUG: pack a piece tight for bonus</string>
 </resources>
