@@ -6,18 +6,26 @@ import android.media.MediaPlayer
 import android.media.SoundPool
 import com.fareza.blokku.R
 import com.fareza.blokku.data.Save
+import kotlin.math.min
+import kotlin.random.Random
 
 /**
- * SFX via SoundPool (low latency), music via looping MediaPlayer.
+ * SFX via SoundPool (low latency, per-play rate for pitch variety),
+ * music via two looping MediaPlayers crossfaded per context (menu vs game).
  * All sounds are synthesized in-repo — fully original, license-free.
  */
 object Audio {
 
     private var pool: SoundPool? = null
     private val ids = HashMap<String, Int>()
-    private var music: MediaPlayer? = null
+    private var musicMenu: MediaPlayer? = null
+    private var musicGame: MediaPlayer? = null
     private var init = false
     private var musicWasPlaying = false
+    private var musicMode = 0 // 0=menu, 1=game
+    private var menuVol = 0f
+    private var gameVol = 0f
+    private const val MUSIC_VOL = 0.34f
 
     private val sfxMap = mapOf(
         "click" to R.raw.sfx_click,
@@ -38,6 +46,7 @@ object Audio {
         "spawn" to R.raw.sfx_spawn,
         "gameover" to R.raw.sfx_gameover,
         "win" to R.raw.sfx_win,
+        "hint" to R.raw.sfx_hint,
     )
 
     fun init(context: Context) {
@@ -52,33 +61,71 @@ object Audio {
             ids[k] = pool!!.load(context, res, 1)
         }
         try {
-            music = MediaPlayer.create(context, R.raw.music_loop)
-            music?.isLooping = true
-            music?.setVolume(0.35f, 0.35f)
-        } catch (e: Exception) { music = null }
+            musicMenu = MediaPlayer.create(context, R.raw.music_loop)
+            musicMenu?.isLooping = true
+            musicMenu?.setVolume(0f, 0f)
+            musicGame = MediaPlayer.create(context, R.raw.music_game)
+            musicGame?.isLooping = true
+            musicGame?.setVolume(0f, 0f)
+        } catch (e: Exception) { musicMenu = null; musicGame = null }
         sync()
     }
 
-    fun play(name: String) {
+    /** rate scales playback speed/pitch — small random offsets keep repeats fresh. */
+    fun play(name: String, rate: Float = 1f) {
         if (!Save.soundOn) return
         val id = ids[name] ?: return
-        try { pool?.play(id, 1f, 1f, 1, 0, 1f) } catch (e: Exception) {}
+        try { pool?.play(id, 1f, 1f, 1, 0, rate) } catch (e: Exception) {}
     }
+
+    /** Convenience: subtle random detune for frequently-triggered sfx. */
+    fun playVaried(name: String) = play(name, 0.96f + Random.nextFloat() * 0.10f)
 
     fun sync() {
         if (Save.musicOn) startMusic() else stopMusic()
     }
 
-    fun startMusic() {
-        try { if (music?.isPlaying == false && Save.musicOn) music?.start() } catch (e: Exception) {}
+    /** 0 = menu music, 1 = in-game music. Crossfades over ~0.5s in update(). */
+    fun setMusicMode(mode: Int) {
+        musicMode = mode
+        if (Save.musicOn) startMusic()
+    }
+
+    private fun startMusic() {
+        try {
+            if (musicMode == 0) {
+                if (musicMenu?.isPlaying == false) musicMenu?.start()
+            } else {
+                if (musicGame?.isPlaying == false) musicGame?.start()
+            }
+        } catch (e: Exception) {}
     }
 
     fun stopMusic() {
-        try { if (music?.isPlaying == true) music?.pause() } catch (e: Exception) {}
+        try { if (musicMenu?.isPlaying == true) musicMenu?.pause() } catch (e: Exception) {}
+        try { if (musicGame?.isPlaying == true) musicGame?.pause() } catch (e: Exception) {}
+    }
+
+    /** Called each frame from GameView — smooth volume crossfade between tracks. */
+    fun update(dt: Float) {
+        val targetMenu = if (Save.musicOn && musicMode == 0) MUSIC_VOL else 0f
+        val targetGame = if (Save.musicOn && musicMode == 1) MUSIC_VOL else 0f
+        menuVol += (targetMenu - menuVol) * min(1f, dt * 4f)
+        gameVol += (targetGame - gameVol) * min(1f, dt * 4f)
+        try {
+            musicMenu?.setVolume(menuVol, menuVol)
+            musicGame?.setVolume(gameVol, gameVol)
+            if (Save.musicOn) {
+                if (menuVol > 0.01f && musicMenu?.isPlaying == false) musicMenu?.start()
+                if (gameVol > 0.01f && musicGame?.isPlaying == false) musicGame?.start()
+                if (menuVol < 0.005f && musicMenu?.isPlaying == true) musicMenu?.pause()
+                if (gameVol < 0.005f && musicGame?.isPlaying == true) musicGame?.pause()
+            }
+        } catch (e: Exception) {}
     }
 
     fun onAppPause() {
-        musicWasPlaying = music?.isPlaying == true
+        musicWasPlaying = (musicMenu?.isPlaying == true) || (musicGame?.isPlaying == true)
         stopMusic()
     }
 

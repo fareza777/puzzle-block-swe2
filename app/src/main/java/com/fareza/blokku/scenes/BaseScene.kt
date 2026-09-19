@@ -5,6 +5,9 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import com.fareza.blokku.R
+import com.fareza.blokku.audio.Audio
+import com.fareza.blokku.audio.Haptic
+import com.fareza.blokku.data.Achievements
 import com.fareza.blokku.data.GameTheme
 import com.fareza.blokku.data.Save
 import com.fareza.blokku.data.Themes
@@ -107,7 +110,7 @@ abstract class BaseScene : Scene(), FrameActive {
     open fun onCoinsTap() {}
 
     fun makeBackButton(): UiIconButton {
-        val b = UiIconButton(D.dp(40f), host.safeTop + D.dp(20f), D.dp(19f), "‹") { scene().pop() }
+        val b = UiIconButton(D.dp(40f), host.safeTop + D.dp(20f), D.dp(19f), "g:back") { scene().pop() }
         b.bg = D.withAlpha(Color.WHITE, 44)
         backButton = b
         return b
@@ -121,5 +124,18 @@ abstract class BaseScene : Scene(), FrameActive {
     fun addFloat(x: Float, y: Float, text: String, color: Int, size: Float) {
         floats.add(FloatText(x, y, text, color, size))
         host.wake()
+    }
+
+    /** Pop a gold toast for every achievement unlocked since the last check. */
+    fun celebrateAchievements() {
+        for (a in Achievements.checkAll()) {
+            Audio.play("reward")
+            Haptic.big()
+            addFloat(
+                host.width / 2f, host.height * 0.16f,
+                "${s(R.string.ach_unlocked)}: ${s(a.labelRes)}",
+                0xFFFFD166.toInt(), D.sp(14f),
+            )
+        }
     }
 }

@@ -16,6 +16,7 @@ import com.fareza.blokku.data.Missions
 import com.fareza.blokku.data.Save
 import com.fareza.blokku.data.Themes
 import com.fareza.blokku.render.D
+import com.fareza.blokku.ui.Glyph
 import com.fareza.blokku.ui.UiButton
 import com.fareza.blokku.ui.UiToggle
 import kotlin.math.min
@@ -80,11 +81,18 @@ class LevelSelectScene : BaseScene() {
                 }
             }
             val fg = if (open) D.color(theme.textPrimary) else D.withAlpha(D.color(theme.textPrimary), 130)
-            D.textIn(c, if (open) "${i + 1}" else "🔒", r, if (open) D.sp(17f) else D.sp(14f), fg)
+            if (open) D.textIn(c, "${i + 1}", r, D.sp(17f), fg)
+            else Glyph.draw(c, "lock", RectF(r.centerX() - D.dp(8f), r.centerY() - D.dp(8f), r.centerX() + D.dp(8f), r.centerY() + D.dp(8f)), fg)
+            // level badges: timed = clock dot, preset = dot
+            if (open && stars == 0) {
+                val def = Levels.get(i)
+                val badge = if (def.timedSec > 0) "clock" else if (def.presetFill > 0f) "themes" else ""
+                if (badge.isNotEmpty()) Glyph.draw(c, badge, RectF(r.right - D.dp(16f), r.top + D.dp(4f), r.right - D.dp(4f), r.top + D.dp(16f)), D.withAlpha(Color.WHITE, 150))
+            }
             if (stars > 0) {
                 var sx = r.centerX() - (stars - 1) * D.dp(7f)
                 for (k in 0 until stars) {
-                    D.text(c, "★", sx, r.bottom - D.dp(5f), D.sp(10f), Color.WHITE)
+                    Glyph.draw(c, "star", RectF(sx - D.dp(5f), r.bottom - D.dp(13f), sx + D.dp(5f), r.bottom - D.dp(3f)), Color.WHITE)
                     sx += D.dp(14f)
                 }
             }
@@ -170,7 +178,7 @@ class MissionsScene : BaseScene() {
                 val prog = Missions.progress(m)
                 val claimable = Missions.claimable(m)
                 val done = Missions.done(m)
-                drawCard(c, D.dp(24f), y, cw, cardH, m.label, "$prog/${m.target}", "+${m.reward}")
+                drawCard(c, D.dp(24f), y, cw, cardH, s(m.labelRes, m.target), "$prog/${m.target}", "+${m.reward}")
                 if (claimable) {
                     val br = RectF(D.dp(24f) + cw - D.dp(80f), y + cardH / 2 - D.dp(17f), D.dp(24f) + cw - D.dp(10f), y + cardH / 2 + D.dp(17f))
                     buttons.add(UiButton(br, s(R.string.claim), bg = 0xFF62D97B.toInt(), fg = Color.WHITE, onTap = {
@@ -195,9 +203,9 @@ class MissionsScene : BaseScene() {
         } else {
             for (a in Achievements.ALL) {
                 val done = Save.achievementDone(a.id)
-                drawCard(c, D.dp(24f), y, cw, cardH, a.label, if (done) "✓" else "", "+${a.reward}")
+                drawCard(c, D.dp(24f), y, cw, cardH, s(a.labelRes), "", "+${a.reward}")
                 if (done) {
-                    D.text(c, "✓", D.dp(24f) + cw - D.dp(18f), y + cardH / 2 + D.sp(16f) * 0.36f, D.sp(16f), 0xFF62D97B.toInt(), Paint.Align.RIGHT)
+                    Glyph.draw(c, "check", RectF(D.dp(24f) + cw - D.dp(30f), y + cardH / 2 - D.dp(8f), D.dp(24f) + cw - D.dp(14f), y + cardH / 2 + D.dp(8f)), 0xFF62D97B.toInt())
                 }
                 y += cardH + D.dp(10f)
             }
@@ -295,43 +303,62 @@ class ThemesScene : BaseScene() {
         c.clipRect(0f, y - D.dp(8f), w, host.height.toFloat() - D.dp(76f))
         c.translate(0f, scrollY)
 
-        for (t in Themes.ALL) {
+        // theme of the week: deterministic weekly discount on one locked theme
+        val weekIdx = Save.weekSeed() % Themes.ALL.size
+        for ((ti, t) in Themes.ALL.withIndex()) {
             val unlocked = Save.themeUnlocked(t.id)
             val inUse = Save.selectedTheme == t.id
+            val onSale = !unlocked && ti == weekIdx
+            val price = if (onSale) t.price / 2 else t.price
             D.rect(c, D.dp(24f), y + D.dp(5f), D.dp(24f) + cw, y + cardH + D.dp(5f), D.withAlpha(Color.BLACK, 70), D.dp(18f))
             D.gradientRect(c, D.dp(24f), y, D.dp(24f) + cw, y + cardH, D.color(t.bgTop), D.color(t.bgBottom), D.dp(18f))
             D.rectStroke(c, D.dp(24f) + 0.8f, y + 0.8f, D.dp(24f) + cw - 0.8f, y + cardH - 0.8f, D.withAlpha(Color.WHITE, 26), 1.3f, D.dp(18f))
             if (inUse) D.rectStroke(c, D.dp(24f), y, D.dp(24f) + cw, y + cardH, D.color(theme.accent), D.dp(2.5f), D.dp(18f))
+            if (onSale) D.rectStroke(c, D.dp(24f), y, D.dp(24f) + cw, y + cardH, 0xFFFFD166.toInt(), D.dp(1.6f), D.dp(18f))
 
-            // preview: mini board + block samples
+            // live preview: mini board with blocks cascading in
             val pv = RectF(D.dp(36f), y + D.dp(14f), D.dp(36f) + D.dp(60f), y + D.dp(74f))
             D.rect(c, pv.left, pv.top, pv.right, pv.bottom, D.color(t.boardBg), D.dp(8f))
+            val ph = (host.globalTime * 0.8f + ti * 0.35f) % 2f // each theme's preview cycles out of phase
             var bx = pv.left + D.dp(8f)
             for (i in 0..2) {
-                val col = D.color(t.blockColors[i])
-                D.blockCell(c, bx, pv.top + D.dp(12f), bx + D.dp(14f), pv.top + D.dp(26f), col, D.dp(4f))
+                val kk = ((ph * 3f) - i).coerceIn(0f, 1f)
+                if (kk > 0f) {
+                    val col = D.color(t.blockColors[i])
+                    val drop = (1f - kk) * D.dp(18f)
+                    D.blockCell(c, bx, pv.top + D.dp(12f) - drop, bx + D.dp(14f), pv.top + D.dp(26f) - drop, col, D.dp(4f), (255 * kk).toInt())
+                }
                 bx += D.dp(17f)
             }
             bx = pv.left + D.dp(8f)
             for (i in 3..5) {
-                val col = D.color(t.blockColors[i])
-                D.blockCell(c, bx, pv.top + D.dp(30f), bx + D.dp(14f), pv.top + D.dp(42f), col, D.dp(4f))
+                val kk = ((ph * 3f) - i).coerceIn(0f, 1f)
+                if (kk > 0f) {
+                    val col = D.color(t.blockColors[i])
+                    val drop = (1f - kk) * D.dp(18f)
+                    D.blockCell(c, bx, pv.top + D.dp(30f) - drop, bx + D.dp(14f), pv.top + D.dp(42f) - drop, col, D.dp(4f), (255 * kk).toInt())
+                }
                 bx += D.dp(17f)
             }
 
+            if (onSale) {
+                val swl = D.textWidth(s(R.string.sale), D.sp(9f)) + D.dp(12f)
+                D.gradientRect(c, pv.right + D.dp(14f) + D.textWidth(t.displayName, D.sp(16f)) + D.dp(8f), y + D.dp(16f), pv.right + D.dp(14f) + D.textWidth(t.displayName, D.sp(16f)) + D.dp(8f) + swl, y + D.dp(32f), 0xFFFF5D73.toInt(), 0xFFE03A5C.toInt(), D.dp(8f))
+                D.text(c, s(R.string.sale), pv.right + D.dp(14f) + D.textWidth(t.displayName, D.sp(16f)) + D.dp(8f) + swl / 2f, y + D.dp(28f), D.sp(9f), Color.WHITE)
+            }
             D.text(c, t.displayName, pv.right + D.dp(14f), y + D.dp(30f), D.sp(16f), D.color(theme.textPrimary), Paint.Align.LEFT)
             val status = when {
                 inUse -> s(R.string.theme_using)
                 unlocked -> s(R.string.theme_unlocked)
+                onSale -> "${t.price} → $price ${s(R.string.coins)}"
                 else -> s(R.string.theme_locked, t.price)
             }
             D.text(c, status, pv.right + D.dp(14f), y + D.dp(54f), D.sp(11f), D.withAlpha(D.color(theme.textPrimary), 180), Paint.Align.LEFT, bold = false)
 
             val btnR = RectF(D.dp(24f) + cw - D.dp(88f), y + cardH / 2 - D.dp(19f), D.dp(24f) + cw - D.dp(14f), y + cardH / 2 + D.dp(19f))
             if (!inUse) {
-                val label = if (unlocked) s(R.string.theme_use) else "🪙 ${t.price}"
-                val b = UiButton(btnR, label, bg = if (unlocked) D.color(theme.accent) else 0xFFFFB84D.toInt(), fg = if (unlocked) Color.WHITE else 0xFF40260A.toInt(), onTap = {
-                    onThemeButton(t.id)
+                val b = UiButton(btnR, if (unlocked) s(R.string.theme_use) else "$price", icon = if (unlocked) "" else "g:coin", bg = if (unlocked) D.color(theme.accent) else 0xFFFFB84D.toInt(), fg = if (unlocked) Color.WHITE else 0xFF40260A.toInt(), onTap = {
+                    onThemeButton(t.id, price)
                 }, textScale = 0.8f)
                 b.inScroll = true
                 buttons.add(b)
@@ -340,19 +367,19 @@ class ThemesScene : BaseScene() {
             y += cardH + D.dp(14f)
         }
 
-        // power-ups strip
+        // power-ups strip — five kinds including hint
         y += D.dp(10f)
         D.text(c, "Power-ups", D.dp(24f), y, D.sp(15f), D.color(theme.textPrimary), Paint.Align.LEFT)
         y += D.dp(10f)
-        val puW = (cw - D.dp(24f)) / 4f
+        val puW = (cw - D.dp(32f)) / 5f
         val puKinds = com.fareza.blokku.data.PowerKind.entries
-        val puGlyphs = arrayOf("undo", "rotate", "bomb", "shuffle")
-        val puPrices = intArrayOf(30, 40, 60, 40)
-        for (i in 0..3) {
+        val puGlyphs = arrayOf("undo", "rotate", "bomb", "shuffle", "hint")
+        val puPrices = intArrayOf(30, 40, 60, 40, 25)
+        for (i in puKinds.indices) {
             val l = D.dp(24f) + i * (puW + D.dp(8f))
             val r = RectF(l, y, l + puW, y + D.dp(78f))
             D.card(c, r.left, r.top, r.right, r.bottom, D.color(theme.boardBg), D.dp(15f))
-            val pTint = intArrayOf(0xFF64B5F6.toInt(), 0xFF7BE495.toInt(), 0xFFFF8A65.toInt(), 0xFFBA8DF5.toInt())[i]
+            val pTint = intArrayOf(0xFF64B5F6.toInt(), 0xFF7BE495.toInt(), 0xFFFF8A65.toInt(), 0xFFBA8DF5.toInt(), 0xFFFFE066.toInt())[i]
             com.fareza.blokku.ui.Glyph.draw(c, puGlyphs[i], RectF(r.left + D.dp(10f), r.top + D.dp(8f), r.right - D.dp(10f), r.top + D.dp(38f)), pTint)
             val price = puPrices[i]
             val have = Save.powerUps(puKinds[i])
@@ -382,7 +409,7 @@ class ThemesScene : BaseScene() {
         // free coins button
         val fcw = w - D.dp(48f)
         val fy = host.height.toFloat() - D.dp(64f)
-        val fb = UiButton(RectF(D.dp(24f), fy, D.dp(24f) + fcw, fy + D.dp(48f)), s(R.string.watch_ad_coins, 40), icon = "🪙", bg = 0xFF62D97B.toInt(), fg = Color.WHITE, onTap = {
+        val fb = UiButton(RectF(D.dp(24f), fy, D.dp(24f) + fcw, fy + D.dp(48f)), s(R.string.watch_ad_coins, 40), icon = "g:coin", bg = 0xFF62D97B.toInt(), fg = Color.WHITE, onTap = {
             Ads.showRewarded(host.context) { ok ->
                 if (ok) {
                     Save.coins += 40
@@ -396,25 +423,28 @@ class ThemesScene : BaseScene() {
         fb.render(c)
     }
 
-    private fun onThemeButton(id: String) {
+    private fun onThemeButton(id: String, price: Int = -1) {
         val t = Themes.byId(id)
+        val cost = if (price >= 0) price else t.price
         if (Save.themeUnlocked(id)) {
             Save.selectedTheme = id
             Audio.play("reward")
             Haptic.success()
-        } else if (Save.coins >= t.price) {
-            Save.coins -= t.price
+        } else if (Save.coins >= cost) {
+            Save.coins -= cost
             Save.unlockTheme(id)
             Save.selectedTheme = id
             Audio.play("reward")
             Haptic.success()
             coinPill?.bump()
-            Achievements.checkAll()
+            celebrateAchievements()
         } else {
             Audio.play("invalid")
             addFloat(host.width / 2f, host.height / 2f, s(R.string.not_enough_coins), 0xFFFF5D73.toInt(), D.sp(15f))
         }
     }
+
+    override fun wantsFrame() = super.wantsFrame() || true // live theme previews cycle
 
     override fun onTouch(e: MotionEvent): Boolean {
         when (e.actionMasked) {
@@ -452,7 +482,7 @@ class SettingsScene : BaseScene() {
     private val toggles = ArrayList<UiToggle>()
     private var langBtn: UiButton? = null
     private var removeAdsBtn: UiButton? = null
-    private var restoreBtn: UiButton? = null
+    private var howtoBtn: UiButton? = null
 
     override fun onEnter() {
         makeBackButton()
@@ -467,11 +497,20 @@ class SettingsScene : BaseScene() {
         toggles.add(UiToggle(RectF(l, y, r, y + D.dp(44f)), s(R.string.settings_vibration), { Save.vibrationOn }, { Save.vibrationOn = it }, accent = D.color(theme.accent)))
         y += D.dp(54f)
         toggles.add(UiToggle(RectF(l, y, r, y + D.dp(44f)), s(R.string.settings_colorblind), { Save.colorblind }, { Save.colorblind = it }, accent = D.color(theme.accent)))
+        y += D.dp(54f)
+        toggles.add(UiToggle(RectF(l, y, r, y + D.dp(44f)), s(R.string.settings_reminder), { Save.reminderOn }, {
+            Save.reminderOn = it
+            if (it) com.fareza.blokku.reminder.Reminder.schedule(host.context) else com.fareza.blokku.reminder.Reminder.cancel(host.context)
+        }, accent = D.color(theme.accent)))
         y += D.dp(64f)
         langBtn = UiButton(RectF(l, y, r, y + D.dp(48f)), "${s(R.string.settings_language)}: ${langLabel()}", bg = D.color(theme.boardBg), fg = D.color(theme.textPrimary), onTap = { cycleLang() })
         y += D.dp(60f)
+        howtoBtn = UiButton(RectF(l, y, r, y + D.dp(48f)), s(R.string.settings_howto), icon = "g:info", bg = D.color(theme.boardBg), fg = D.color(theme.textPrimary), onTap = {
+            Audio.play("click"); scene().push(TutorialScene())
+        })
+        y += D.dp(60f)
         if (!Save.adsRemoved) {
-            removeAdsBtn = UiButton(RectF(l, y, r, y + D.dp(48f)), s(R.string.settings_remove_ads), icon = "★", bg = 0xFFFFB84D.toInt(), fg = 0xFF40260A.toInt(), onTap = { Ads.buyRemoveAds(host) })
+            removeAdsBtn = UiButton(RectF(l, y, r, y + D.dp(48f)), s(R.string.settings_remove_ads), icon = "g:star", bg = 0xFFFFB84D.toInt(), fg = 0xFF40260A.toInt(), onTap = { Ads.buyRemoveAds(host) })
         }
     }
 
@@ -507,11 +546,12 @@ class SettingsScene : BaseScene() {
         }
         for (t in toggles) t.render(c)
         langBtn?.let { it.appear.t = it.appear.duration; it.render(c) }
+        howtoBtn?.let { it.appear.t = it.appear.duration; it.render(c) }
         if (!Save.adsRemoved) {
             removeAdsBtn?.let { it.appear.t = it.appear.duration; it.render(c) }
         } else {
             val w = host.width.toFloat()
-            D.text(c, s(R.string.settings_remove_ads_done), w / 2f, host.safeTop + D.dp(84f) + D.dp(216f + 60f + 24f), D.sp(13f), 0xFF62D97B.toInt())
+            D.text(c, s(R.string.settings_remove_ads_done), w / 2f, (howtoBtn?.rect?.bottom ?: 0f) + D.dp(40f), D.sp(13f), 0xFF62D97B.toInt())
         }
     }
 
@@ -523,6 +563,7 @@ class SettingsScene : BaseScene() {
             if (t.contains(e.x, e.y)) { t.tap(); Audio.play("click"); Haptic.tick(); return true }
         }
         langBtn?.let { if (it.contains(e.x, e.y)) { it.tap(); return true } }
+        howtoBtn?.let { if (it.contains(e.x, e.y)) { it.tap(); return true } }
         removeAdsBtn?.let { if (it.contains(e.x, e.y)) { it.tap(); return true } }
         return true
     }

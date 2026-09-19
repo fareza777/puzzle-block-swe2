@@ -146,7 +146,7 @@ class EngineTest {
         assertEquals(60, Levels.COUNT)
         for (i in 0 until Levels.COUNT) {
             val d = Levels.get(i)
-            assertTrue(d.moveLimit > 0)
+            assertTrue(d.moveLimit > 0 || d.timedSec > 0)
             assertTrue(d.goal.target > 0)
         }
     }
@@ -167,5 +167,67 @@ class EngineTest {
             val p = Piece.of(d.coords, 0)
             assertTrue(p.rows in 1..3 || p.rows == 5 || p.rows <= 5)
         }
+    }
+
+    @Test
+    fun `run serialization round-trips`() {
+        val engine = GameEngine(Board(9), Random(7))
+        engine.tray[0] = single(3); engine.tray[1] = null; engine.tray[2] = line9h()
+        engine.board.cells[0] = 2; engine.board.cells[80] = 5
+        engine.place(0, 4, 4)
+        val json = engine.toJson()
+        val back = GameEngine.fromJson(json)!!
+        assertEquals(engine.score, back.score)
+        assertEquals(engine.mode, back.mode)
+        assertTrue(engine.board.cells.contentEquals(back.board.cells))
+        assertTrue(engine.tray[2]!!.cells.contentEquals(back.tray[2]!!.cells))
+        assertTrue(back.tray[1] == null)
+        assertTrue(GameEngine.fromJson("not json") == null)
+    }
+
+    @Test
+    fun `timed level expires into failure`() {
+        val def = LevelDef(6, Goal(GoalType.SCORE, 999999), -1, 0L, timedSec = 30)
+        val engine = GameEngine.level(def)
+        assertEquals(30, engine.timeLimitSec)
+        engine.onTimeExpired()
+        assertTrue(engine.goalFailed && engine.gameOver)
+        // met goals are not failed by the clock
+        val def2 = LevelDef(6, Goal(GoalType.SCORE, 1), -1, 0L, timedSec = 30)
+        val e2 = GameEngine.level(def2)
+        e2.tray[0] = line9h(); e2.tray[1] = null; e2.tray[2] = null
+        e2.place(0, 0, 0)
+        assertTrue(e2.goalMet)
+        e2.onTimeExpired()
+        assertFalse(e2.goalFailed)
+    }
+
+    @Test
+    fun `revive clears densest region`() {
+        val engine = GameEngine(Board(9), Random(1))
+        // dense cluster around (4,4); single cell far corner
+        for (r in 3..5) for (c in 3..5) engine.board.cells[r * 9 + c] = 1
+        engine.board.cells[0] = 1
+        val preview = engine.peekReviveCells()
+        assertTrue(preview.isNotEmpty())
+        val removed = engine.reviveClear()
+        assertTrue(removed.size >= 9)
+        assertEquals(0, engine.board.cells[4 * 9 + 4])
+        assertEquals(1, engine.board.cells[0]) // sparse corner untouched
+    }
+
+    @Test
+    fun `bestMove prefers clearing move`() {
+        val engine = GameEngine(Board(9), Random(1))
+        for (c in 0 until 8) engine.board.cells[c] = 1
+        engine.tray[0] = single(); engine.tray[1] = null
+        engine.tray[2] = Piece.of(listOf(0 to 0, 0 to 1, 0 to 2), 0)
+        val mv = engine.bestMove()!!
+        assertEquals(0, mv.first) // slot 0 single completing row beats the bar
+        assertEquals(8, mv.third) // col 8 completes the row
+        // empty board still returns a move
+        val open = GameEngine(Board(9), Random(1))
+        open.tray[0] = single(); open.tray[1] = null; open.tray[2] = null
+        assertTrue(open.bestMove() != null)
     }
 }

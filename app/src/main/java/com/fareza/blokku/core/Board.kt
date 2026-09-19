@@ -44,6 +44,33 @@ class Board(val size: Int = 9) {
         return n
     }
 
+    /**
+     * Best-scoring placement for a piece, for the Hint power-up.
+     * Scores line clears first, then adjacency to filled cells (keeps the board
+     * compact), with a slight pull toward lower rows.
+     */
+    fun bestFit(p: Piece): Pair<Int, Int>? {
+        var best: Pair<Int, Int>? = null
+        var bestScore = Int.MIN_VALUE
+        for (r in 0..size - p.rows) for (c in 0..size - p.cols) {
+            if (!fits(p, r, c)) continue
+            val clears = findClears(p, r, c).lineCount
+            var adj = 0
+            for (pc in p.cells) {
+                val rr = r + (pc shr 4)
+                val cc = c + (pc and 15)
+                if (rr > 0 && cells[(rr - 1) * size + cc] != 0) adj++
+                if (rr < size - 1 && cells[(rr + 1) * size + cc] != 0) adj++
+                if (cc > 0 && cells[rr * size + cc - 1] != 0) adj++
+                if (cc < size - 1 && cells[rr * size + cc + 1] != 0) adj++
+                if (rr == size - 1) adj++ // hugging the bottom edge is good
+            }
+            val score = clears * 1000 + adj * 4 + r
+            if (score > bestScore) { bestScore = score; best = r to c }
+        }
+        return best
+    }
+
     fun place(p: Piece, row: Int, col: Int) {
         for (pc in p.cells) {
             val r = row + (pc shr 4)

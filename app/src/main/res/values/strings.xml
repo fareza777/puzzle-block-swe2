@@ -50,6 +50,8 @@
     <string name="power_rotate">Rotate</string>
     <string name="power_bomb">Blast</string>
     <string name="power_shuffle">Shuffle</string>
+    <string name="power_hint">Hint</string>
+    <string name="hint_hint">Best move highlighted</string>
     <string name="power_empty">None left — get more in Shop</string>
     <string name="bomb_hint">Tap a cell to blast a 3×3 area</string>
     <string name="rotate_hint">Tap a piece to rotate it</string>
@@ -61,6 +63,25 @@
     <string name="mission_progress">%1$d / %2$d</string>
     <string name="reward_coins">+%1$d coins</string>
     <string name="refresh_in">New missions in %1$s</string>
+    <string name="mission_score_game">Score %1$d+ in one game</string>
+    <string name="mission_lines_total">Clear %1$d lines</string>
+    <string name="mission_cells_total">Place %1$d blocks</string>
+    <string name="mission_combo_once">Reach a %1$d× combo</string>
+    <string name="mission_play_games">Play %1$d games</string>
+    <string name="mission_use_powerups">Use %1$d power-ups</string>
+    <string name="ach_first_game">Play your first game</string>
+    <string name="ach_score_1k">Score 1,000 in a game</string>
+    <string name="ach_score_5k">Score 5,000 in a game</string>
+    <string name="ach_combo_4">Reach a 4× combo</string>
+    <string name="ach_combo_7">Reach a 7× combo</string>
+    <string name="ach_lines_100">Clear 100 lines total</string>
+    <string name="ach_lines_1000">Clear 1,000 lines total</string>
+    <string name="ach_cells_1000">Place 1,000 blocks</string>
+    <string name="ach_daily_3">Finish 3 daily challenges</string>
+    <string name="ach_level_10">Beat level 10</string>
+    <string name="ach_themes_3">Own 3 themes</string>
+    <string name="ach_coins_500">Hold 500 coins</string>
+    <string name="ach_unlocked">Achievement unlocked!</string>
 
     <!-- Stats -->
     <string name="stats_games">Games played</string>
@@ -90,6 +111,8 @@
     <string name="settings_colorblind">Colorblind mode</string>
     <string name="settings_remove_ads">Remove ads</string>
     <string name="settings_remove_ads_done">Ads removed — thank you!</string>
+    <string name="settings_reminder">Daily reminder</string>
+    <string name="settings_howto">How to play</string>
     <string name="lang_system">System</string>
     <string name="on">On</string>
     <string name="off">Off</string>
@@ -107,8 +130,19 @@
     <!-- Misc -->
     <string name="yes">Yes</string>
     <string name="no">No</string>
-    <string name="quit_confirm">Quit this game? Progress in this round is lost.</string>
+    <string name="quit_title">Quit to menu?</string>
+    <string name="quit_confirm">Your run is saved — continue anytime.</string>
+    <string name="quit_confirm_level">Level progress will be lost.</string>
     <string name="ok">OK</string>
     <string name="cancel">Cancel</string>
     <string name="coins">Coins</string>
+    <string name="timed_badge">Timed</string>
+    <string name="time_left">%1$ds</string>
+    <string name="day_streak">Day %1$d streak</string>
+    <string name="continue_run">Continue · %1$d</string>
+    <string name="share_score">Share</string>
+    <string name="sale">SALE</string>
+    <string name="revive_preview">Clears the densest 3×3</string>
+    <string name="notif_daily_title">Your daily is ready</string>
+    <string name="notif_daily_body">Daily challenge + free coins are waiting!</string>
 </resources>

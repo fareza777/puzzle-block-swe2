@@ -35,7 +35,22 @@ object Haptic {
     }
 
     fun tick() = buzz(18, 120)
+    fun soft() = buzz(12, 60)
     fun success() = buzz(40, 200)
     fun heavy() = buzz(70, 255)
     fun error() = buzz(60, 80)
+    /** Multi-line clears: rolling double-thud. */
+    fun big() {
+        if (!Save.vibrationOn) return
+        try {
+            vibrator?.let {
+                if (Build.VERSION.SDK_INT >= 26) {
+                    it.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 30, 60, 45), intArrayOf(0, 255, 0, 180), -1))
+                } else {
+                    @Suppress("DEPRECATION")
+                    it.vibrate(longArrayOf(0, 30, 60, 45), -1)
+                }
+            }
+        } catch (e: Exception) {}
+    }
 }

@@ -1,5 +1,6 @@
 package com.fareza.blokku.data
 
+import com.fareza.blokku.R
 import com.fareza.blokku.core.Daily
 import com.fareza.blokku.core.GameEngine
 import kotlin.random.Random
@@ -11,7 +12,7 @@ class Mission(
     val type: MissionType,
     val target: Int,
     val reward: Int,
-    val label: String,
+    val labelRes: Int,
 )
 
 /**
@@ -19,15 +20,15 @@ class Mission(
  */
 object Missions {
 
-    class Template(val type: MissionType, val min: Int, val max: Int, val labelFmt: String, val rewardBase: Int)
+    class Template(val type: MissionType, val min: Int, val max: Int, val labelRes: Int, val rewardBase: Int)
 
     private val pool = listOf(
-        Template(MissionType.SCORE_GAME, 400, 1500, "Score %d+ in one game", 40),
-        Template(MissionType.LINES_TOTAL, 10, 40, "Clear %d lines", 30),
-        Template(MissionType.CELLS_TOTAL, 50, 180, "Place %d blocks", 30),
-        Template(MissionType.COMBO_ONCE, 2, 5, "Reach a %d× combo", 50),
-        Template(MissionType.PLAY_GAMES, 2, 6, "Play %d games", 25),
-        Template(MissionType.USE_POWERUPS, 1, 4, "Use %d power-ups", 35),
+        Template(MissionType.SCORE_GAME, 400, 1500, R.string.mission_score_game, 40),
+        Template(MissionType.LINES_TOTAL, 10, 40, R.string.mission_lines_total, 30),
+        Template(MissionType.CELLS_TOTAL, 50, 180, R.string.mission_cells_total, 30),
+        Template(MissionType.COMBO_ONCE, 2, 5, R.string.mission_combo_once, 50),
+        Template(MissionType.PLAY_GAMES, 2, 6, R.string.mission_play_games, 25),
+        Template(MissionType.USE_POWERUPS, 1, 4, R.string.mission_use_powerups, 35),
     )
 
     fun today(): List<Mission> {
@@ -45,7 +46,7 @@ object Missions {
         return indices.mapIndexed { slot, pi ->
             val t = pool[pi]
             val target = t.min + r.nextInt(t.max - t.min + 1)
-            Mission("d$pi", t.type, target, t.rewardBase + target / 20, String.format(t.labelFmt, target))
+            Mission("d$pi", t.type, target, t.rewardBase + target / 20, t.labelRes)
         }
     }
 
@@ -75,23 +76,23 @@ object Missions {
     }
 }
 
-class Achievement(val id: String, val label: String, val reward: Int, val check: () -> Boolean)
+class Achievement(val id: String, val labelRes: Int, val reward: Int, val check: () -> Boolean)
 
 object Achievements {
 
     val ALL: List<Achievement> = listOf(
-        Achievement("first_game", "Play your first game", 30) { Save.gamesPlayed >= 1 },
-        Achievement("score_1k", "Score 1,000 in a game", 60) { Save.bestSingleScore >= 1000 },
-        Achievement("score_5k", "Score 5,000 in a game", 150) { Save.bestSingleScore >= 5000 },
-        Achievement("combo_4", "Reach a 4× combo", 60) { Save.lifetimeBestCombo >= 4 },
-        Achievement("combo_7", "Reach a 7× combo", 120) { Save.lifetimeBestCombo >= 7 },
-        Achievement("lines_100", "Clear 100 lines total", 50) { Save.totalLines >= 100 },
-        Achievement("lines_1000", "Clear 1,000 lines total", 150) { Save.totalLines >= 1000 },
-        Achievement("cells_1000", "Place 1,000 blocks", 50) { Save.totalCells >= 1000 },
-        Achievement("daily_3", "Finish 3 daily challenges", 80) { Save.dailiesDone >= 3 },
-        Achievement("level_10", "Beat level 10", 80) { Save.stars(9) > 0 },
-        Achievement("themes_3", "Own 3 themes", 60) { countOwnedThemes() >= 3 },
-        Achievement("coins_500", "Hold 500 coins", 50) { Save.coins >= 500 },
+        Achievement("first_game", R.string.ach_first_game, 30) { Save.gamesPlayed >= 1 },
+        Achievement("score_1k", R.string.ach_score_1k, 60) { Save.bestSingleScore >= 1000 },
+        Achievement("score_5k", R.string.ach_score_5k, 150) { Save.bestSingleScore >= 5000 },
+        Achievement("combo_4", R.string.ach_combo_4, 60) { Save.lifetimeBestCombo >= 4 },
+        Achievement("combo_7", R.string.ach_combo_7, 120) { Save.lifetimeBestCombo >= 7 },
+        Achievement("lines_100", R.string.ach_lines_100, 50) { Save.totalLines >= 100 },
+        Achievement("lines_1000", R.string.ach_lines_1000, 150) { Save.totalLines >= 1000 },
+        Achievement("cells_1000", R.string.ach_cells_1000, 50) { Save.totalCells >= 1000 },
+        Achievement("daily_3", R.string.ach_daily_3, 80) { Save.dailiesDone >= 3 },
+        Achievement("level_10", R.string.ach_level_10, 80) { Save.stars(9) > 0 },
+        Achievement("themes_3", R.string.ach_themes_3, 60) { countOwnedThemes() >= 3 },
+        Achievement("coins_500", R.string.ach_coins_500, 50) { Save.coins >= 500 },
     )
 
     private fun countOwnedThemes() = Themes.ALL.count { Save.themeUnlocked(it.id) }

@@ -20,6 +20,12 @@ object D {
     var density = 1f
     var scaledDensity = 1f
 
+    /** Nunito (OFL) bundled fonts; null falls back to system — set by GameView.init. */
+    var fontBold: Typeface? = null
+    var fontReg: Typeface? = null
+    private val boldFace get() = fontBold ?: Typeface.DEFAULT_BOLD
+    private val regFace get() = fontReg ?: Typeface.DEFAULT
+
     fun dp(v: Float) = v * density
     fun sp(v: Float) = v * scaledDensity
 
@@ -110,7 +116,7 @@ object D {
         txt.color = color
         txt.alpha = 255
         txt.textAlign = align
-        txt.typeface = Typeface.DEFAULT_BOLD
+        txt.typeface = boldFace
         txt.letterSpacing = spacing
         c.drawText(s.uppercase(), x, y, txt)
         txt.letterSpacing = 0f
@@ -133,7 +139,7 @@ object D {
         txt.color = color
         txt.alpha = alpha
         txt.textAlign = align
-        txt.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        txt.typeface = if (bold) boldFace else regFace
         c.drawText(s, x, y, txt)
         txt.alpha = 255
     }
@@ -141,14 +147,14 @@ object D {
     /** Draw text vertically centered in a rect. */
     fun textIn(c: Canvas, s: String, r: RectF, sizePx: Float, color: Int, bold: Boolean = true) {
         txt.textSize = sizePx
-        txt.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        txt.typeface = if (bold) boldFace else regFace
         val fm = txt.fontMetrics
         text(c, s, r.centerX(), r.centerY() - (fm.ascent + fm.descent) / 2f, sizePx, color, Paint.Align.CENTER, bold)
     }
 
     fun textWidth(s: String, sizePx: Float, bold: Boolean = true): Float {
         txt.textSize = sizePx
-        txt.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        txt.typeface = if (bold) boldFace else regFace
         return txt.measureText(s)
     }
 

@@ -46,6 +46,8 @@
     <string name="power_rotate">Putar</string>
     <string name="power_bomb">Ledak</string>
     <string name="power_shuffle">Acak</string>
+    <string name="power_hint">Petunjuk</string>
+    <string name="hint_hint">Langkah terbaik disorot</string>
     <string name="power_empty">Habis — beli di Toko</string>
     <string name="bomb_hint">Ketuk sel untuk meledakkan area 3×3</string>
     <string name="rotate_hint">Ketuk balok untuk memutar</string>
@@ -56,6 +58,25 @@
     <string name="mission_progress">%1$d / %2$d</string>
     <string name="reward_coins">+%1$d koin</string>
     <string name="refresh_in">Misi baru dalam %1$s</string>
+    <string name="mission_score_game">Capai %1$d+ poin dalam satu permainan</string>
+    <string name="mission_lines_total">Hapus %1$d baris</string>
+    <string name="mission_cells_total">Pasang %1$d balok</string>
+    <string name="mission_combo_once">Capai kombo %1$d×</string>
+    <string name="mission_play_games">Mainkan %1$d permainan</string>
+    <string name="mission_use_powerups">Pakai %1$d power-up</string>
+    <string name="ach_first_game">Mainkan permainan pertamamu</string>
+    <string name="ach_score_1k">Capai 1.000 poin dalam satu permainan</string>
+    <string name="ach_score_5k">Capai 5.000 poin dalam satu permainan</string>
+    <string name="ach_combo_4">Capai kombo 4×</string>
+    <string name="ach_combo_7">Capai kombo 7×</string>
+    <string name="ach_lines_100">Hapus total 100 baris</string>
+    <string name="ach_lines_1000">Hapus total 1.000 baris</string>
+    <string name="ach_cells_1000">Pasang 1.000 balok</string>
+    <string name="ach_daily_3">Selesaikan 3 tantangan harian</string>
+    <string name="ach_level_10">Kalahkan level 10</string>
+    <string name="ach_themes_3">Miliki 3 tema</string>
+    <string name="ach_coins_500">Punya 500 koin</string>
+    <string name="ach_unlocked">Pencapaian terbuka!</string>
 
     <string name="stats_games">Permainan dimainkan</string>
     <string name="stats_best_classic">Skor klasik terbaik</string>
@@ -82,6 +103,8 @@
     <string name="settings_colorblind">Mode buta warna</string>
     <string name="settings_remove_ads">Hapus iklan</string>
     <string name="settings_remove_ads_done">Iklan dihapus — terima kasih!</string>
+    <string name="settings_reminder">Pengingat harian</string>
+    <string name="settings_howto">Cara main</string>
     <string name="lang_system">Sistem</string>
     <string name="on">Aktif</string>
     <string name="off">Mati</string>
@@ -97,8 +120,19 @@
 
     <string name="yes">Ya</string>
     <string name="no">Tidak</string>
-    <string name="quit_confirm">Keluar dari permainan? Progres ronde ini hilang.</string>
+    <string name="quit_title">Keluar ke menu?</string>
+    <string name="quit_confirm">Permainanmu tersimpan — lanjutkan kapan saja.</string>
+    <string name="quit_confirm_level">Progres level akan hilang.</string>
     <string name="ok">OK</string>
     <string name="cancel">Batal</string>
     <string name="coins">Koin</string>
+    <string name="timed_badge">Berwaktu</string>
+    <string name="time_left">%1$d dtk</string>
+    <string name="day_streak">Streak hari ke-%1$d</string>
+    <string name="continue_run">Lanjutkan · %1$d</string>
+    <string name="share_score">Bagikan</string>
+    <string name="sale">DISKON</string>
+    <string name="revive_preview">Membersihkan area terpadat 3×3</string>
+    <string name="notif_daily_title">Harian kamu siap</string>
+    <string name="notif_daily_body">Tantangan harian + koin gratis menunggu!</string>
 </resources>

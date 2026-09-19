@@ -48,11 +48,31 @@ class GameScene(
     private var hudTop = 0f
     private var meterRect = RectF()
     private var powerY = 0f
-    private val powerRects = arrayOf(RectF(), RectF(), RectF(), RectF())
-    private val powerKinds = arrayOf(PowerKind.UNDO, PowerKind.ROTATE, PowerKind.BOMB, PowerKind.SHUFFLE)
-    private val powerGlyphs = arrayOf("undo", "rotate", "bomb", "shuffle")
+    private val powerRects = Array(5) { RectF() }
+    private val powerKinds = arrayOf(PowerKind.UNDO, PowerKind.ROTATE, PowerKind.BOMB, PowerKind.SHUFFLE, PowerKind.HINT)
+    private val powerGlyphs = arrayOf("undo", "rotate", "bomb", "shuffle", "hint")
+    private val powerTints = intArrayOf(0xFF64B5F6.toInt(), 0xFF7BE495.toInt(), 0xFFFF8A65.toInt(), 0xFFBA8DF5.toInt(), 0xFFFFE066.toInt())
 
     private var pauseBtn: UiIconButton? = null
+
+    // ---- hint power-up ----
+    private var hintMove: Triple<Int, Int, Int>? = null // (slot,row,col)
+    private var hintT = 0f
+
+    // ---- danger pulse ----
+    private var fitsRemaining = 99
+    private var dangerPulse = 0f
+
+    // ---- hold-to-undo ----
+    private var undoHeld = false
+    private var undoHoldT = 0f
+    private var undoRepT = 0f
+
+    // ---- timed levels ----
+    private var timeLeft = -1f
+
+    // ---- multi-touch drag tracking ----
+    private var dragPointerId = -1
 
     // ---- drag state ----
     private var dragIndex = -1
@@ -116,13 +136,21 @@ class GameScene(
 
     override fun onEnter() {
         Audio.play("spawn")
+        Audio.setMusicMode(1)
         computeLayout()
-        pauseBtn = UiIconButton(D.dp(34f), hudTop - D.dp(4f), D.dp(17f), "Ⅱ") { pause() }
+        pauseBtn = UiIconButton(D.dp(34f), hudTop - D.dp(4f), D.dp(17f), "g:pause") { pause() }
         pauseBtn?.fg = D.color(theme.textPrimary)
-        for (i in 0..2) trayPop[i] = 0.6f
+        for (i in 0..2) trayPop[i] = -i * 0.12f // staggered pop-in
+        if (engine.timeLimitSec > 0) timeLeft = engine.timeLimitSec.toFloat()
+        refreshDanger()
         if (!Save.tutorialDone) {
             scene().push(TutorialScene())
         }
+    }
+
+    override fun onExit() {
+        Audio.setMusicMode(0)
+        saveRun()
     }
 
     private fun pause() {
@@ -142,12 +170,12 @@ class GameScene(
         if (engine.mode != Mode.CLASSIC) boardRect.offset(0f, D.dp(22f))
         cell = boardRect.width() / 9f
 
-        val powerSize = D.dp(52f)
-        val gap = D.dp(14f)
-        val totalW = powerSize * 4 + gap * 3
+        val powerSize = D.dp(46f)
+        val gap = D.dp(10f)
+        val totalW = powerSize * 5 + gap * 4
         var px = (w - totalW) / 2f
         powerY = boardRect.bottom + D.dp(10f)
-        for (i in 0..3) {
+        for (i in 0..4) {
             powerRects[i].set(px, powerY, px + powerSize, powerY + powerSize)
             px += powerSize + gap
         }
@@ -197,6 +225,43 @@ class GameScene(
         if (overlay != Overlay.NONE) overlayAnim.update(dt)
         if (overlay == Overlay.LEVEL_COMPLETE) starAnimT += dt
         updateDragVisual(dt)
+
+        // hint ghost timer
+        if (hintT > 0f) { hintT -= dt; if (hintT <= 0f) hintMove = null }
+        // danger breathing
+        if (fitsRemaining <= 4 && overlay == Overlay.NONE) dangerPulse += dt * 4f else dangerPulse = 0f
+        // hold-to-undo: after 0.45s, repeats every 0.18s
+        if (undoHeld) {
+            undoHoldT += dt
+            if (undoHoldT > 0.45f) {
+                undoRepT += dt
+                if (undoRepT >= 0.18f) {
+                    undoRepT = 0f
+                    if (Save.powerUps(PowerKind.UNDO) > 0 && engine.canUndo) {
+                        Save.usePowerUp(PowerKind.UNDO)
+                        engine.undo()
+                        clearing.clear()
+                        Audio.play("undo", 1.05f)
+                        Haptic.soft()
+                        refreshDanger()
+                    } else undoHeld = false
+                }
+            }
+        }
+        // timed level countdown
+        if (engine.timeLimitSec > 0 && overlay == Overlay.NONE && gameOverDelay <= 0f && !engine.gameOver && !engine.goalMet) {
+            timeLeft -= dt
+            if (timeLeft <= 0f) {
+                timeLeft = 0f
+                engine.onTimeExpired()
+                afterMove()
+            }
+        }
+    }
+
+    private fun refreshDanger() {
+        fitsRemaining = 0
+        for (i in 0..2) engine.tray[i]?.let { fitsRemaining += engine.board.fitCount(it) }
     }
 
     /** Smooth-follow the lifted piece — it floats above the finger keeping the
@@ -230,6 +295,8 @@ class GameScene(
             comboBannerT > 0 || meterFlash > 0 || boardShake > 0 ||
             dragIndex >= 0 || retPiece != null || gameOverDelay > 0 || overlayAnim.let { !it.done && overlay != Overlay.NONE } ||
             enterAnim.t < enterAnim.duration || trayPop.any { it < 1f } ||
+            hintT > 0 || dangerPulse > 0 || undoHeld ||
+            (engine.timeLimitSec > 0 && overlay == Overlay.NONE && !engine.gameOver) ||
             (overlay == Overlay.LEVEL_COMPLETE && starAnimT < 2f)
 
     // ============ touch ============
@@ -242,15 +309,19 @@ class GameScene(
                 pauseBtn?.let { if (it.contains(e.x, e.y)) { it.pressT = 1f; it.onTap(); return true } }
                 coinPill?.let { if (it.contains(e.x, e.y)) { onCoinsTap(); return true } }
                 // power-ups
-                for (i in 0..3) {
-                    if (powerRects[i].contains(e.x, e.y)) { onPowerTap(i); return true }
+                for (i in 0..4) {
+                    if (powerRects[i].contains(e.x, e.y)) {
+                        onPowerTap(i)
+                        if (powerKinds[i] == PowerKind.UNDO) { undoHeld = true; undoHoldT = 0f; undoRepT = 0f }
+                        return true
+                    }
                 }
                 if (bombArmed) {
                     val idx = boardIndexAt(e.x, e.y)
                     if (idx >= 0) { doBomb(idx); return true }
                 }
-                // pick up tray piece
-                for (i in 0..2) {
+                // pick up tray piece (only when no drag is active — ignore 2nd finger)
+                if (dragIndex < 0) for (i in 0..2) {
                     val tr = trayRects[i] ?: continue
                     if (engine.tray[i] != null && tr.contains(e.x, e.y)) {
                         if (rotateArmed) {
@@ -258,6 +329,7 @@ class GameScene(
                             return true
                         }
                         dragIndex = i
+                        dragPointerId = e.getPointerId(e.actionIndex)
                         dragX = e.x
                         dragY = e.y
                         dragOffY = D.dp(80f)
@@ -270,8 +342,9 @@ class GameScene(
                         dragScale = 0f
                         dragVisX = e.x - pw0 * grabFracX
                         dragVisY = e.y - dragOffY - (p0?.rows ?: 1) * trayCell / 2f
-                        Audio.play("pickup")
+                        Audio.playVaried("pickup")
                         Haptic.tick()
+                        hintMove = null; hintT = 0f
                         updateSnap()
                         return true
                     }
@@ -279,38 +352,24 @@ class GameScene(
             }
             MotionEvent.ACTION_MOVE -> {
                 if (dragIndex >= 0) {
-                    dragX = e.x; dragY = e.y
+                    val pi = e.findPointerIndex(dragPointerId)
+                    if (pi >= 0) { dragX = e.getX(pi); dragY = e.getY(pi) }
                     updateSnap()
                     host.wake()
                 }
             }
-            MotionEvent.ACTION_UP -> {
-                if (overlay != Overlay.NONE) { dragIndex = -1; return true }
-                if (dragIndex >= 0) {
-                    val i = dragIndex
-                    val piece = engine.tray[i]
-                    dragIndex = -1
-                    if (snapFits && snapRow >= 0 && snapCol >= 0) {
-                        doPlace(i, snapRow, snapCol)
-                    } else {
-                        Audio.play("invalid")
-                        boardShake = 0.25f
-                        Haptic.error()
-                        // fly the piece back to its tray slot instead of vanishing
-                        if (piece != null) {
-                            retPiece = piece
-                            retX0 = dragVisX; retY0 = dragVisY
-                            retX = retX0; retY = retY0
-                            val slotCx = (host.width / 3f) * i + host.width / 6f
-                            retX1 = slotCx - piece.cols * trayCell / 2f
-                            retY1 = trayY + (host.height - trayY - D.dp(10f)) / 2f - piece.rows * trayCell / 2f
-                            retT = 0f
-                            host.wake()
-                        }
-                    }
+            MotionEvent.ACTION_POINTER_UP -> {
+                // a second finger lifting mid-drag shouldn't drop the piece
+                if (dragIndex >= 0 && e.getPointerId(e.actionIndex) == dragPointerId) {
+                    dropDragged()
                 }
             }
-            MotionEvent.ACTION_CANCEL -> dragIndex = -1
+            MotionEvent.ACTION_UP -> {
+                undoHeld = false
+                if (overlay != Overlay.NONE) { dragIndex = -1; return true }
+                if (dragIndex >= 0) dropDragged()
+            }
+            MotionEvent.ACTION_CANCEL -> { dragIndex = -1; undoHeld = false }
         }
         return true
     }
@@ -322,6 +381,32 @@ class GameScene(
         }
         // click outside quit/pause dialog dismisses
         if (overlay == Overlay.PAUSE && !dialogRect.contains(x, y)) { overlay = Overlay.NONE }
+    }
+
+    /** Drop whatever is being dragged at the current snap position. */
+    private fun dropDragged() {
+        val i = dragIndex
+        val piece = engine.tray[i]
+        dragIndex = -1
+        dragPointerId = -1
+        if (snapFits && snapRow >= 0 && snapCol >= 0) {
+            doPlace(i, snapRow, snapCol)
+        } else {
+            Audio.play("invalid")
+            boardShake = 0.25f
+            Haptic.error()
+            // fly the piece back to its tray slot instead of vanishing
+            if (piece != null) {
+                retPiece = piece
+                retX0 = dragVisX; retY0 = dragVisY
+                retX = retX0; retY = retY0
+                val slotCx = (host.width / 3f) * i + host.width / 6f
+                retX1 = slotCx - piece.cols * trayCell / 2f
+                retY1 = trayY + (host.height - trayY - D.dp(10f)) / 2f - piece.rows * trayCell / 2f
+                retT = 0f
+                host.wake()
+            }
+        }
     }
 
     private fun updateSnap() {
@@ -353,7 +438,7 @@ class GameScene(
         capturePlaced(piece, r, cIdx) // snapshot cells+color before engine consumes the piece
         val res = engine.place(i, r, cIdx)
         if (!res.placed) { Audio.play("invalid"); return }
-        Audio.play("place")
+        Audio.playVaried("place")
         Haptic.tick()
         if (res.clearCells.isNotEmpty()) {
             // colors of cleared cells come from the pre-place board snapshot
@@ -365,7 +450,7 @@ class GameScene(
                 n == 2 -> Audio.play("clear2")
                 else -> Audio.play("clear1")
             }
-            Haptic.success()
+            if (n >= 2) Haptic.big() else Haptic.success()
             // particles at each cleared cell
             for (cc in res.clearCells) {
                 val br = cc / 9; val bc = cc % 9
@@ -375,11 +460,11 @@ class GameScene(
                     life = 0.6f, gravity = D.dp(500f),
                 )
             }
-            // combo banner
+            // combo banner — pitch climbs with the combo level
             if (res.comboCount >= 2) {
                 comboBannerN = res.comboCount
                 comboBannerT = 1.1f
-                Audio.play("combo")
+                Audio.play("combo", (1f + (res.comboCount - 1) * 0.08f).coerceAtMost(1.5f))
             }
             addFloat(
                 boardRect.centerX(), boardRect.top + boardRect.height() * 0.4f,
@@ -389,15 +474,20 @@ class GameScene(
             Missions.track(MissionType.COMBO_ONCE, res.comboCount)
             if (res.meterFull) {
                 meterFlash = 1f
-                grantRandomPowerUp()
+                grantNeededPowerUp()
             }
         } else {
-            Audio.play("place")
+            Audio.playVaried("place")
         }
         for (cc in lastPlacedCells) cellAnim[cc] = 0f
         Missions.track(MissionType.CELLS_TOTAL, lastPlacedCells.size)
-        if (engine.trayEmpty()) for (k in 0..2) trayPop[k] = 0f
-        for (k in 0..2) if (engine.tray[k] != null && trayPop[k] <= 0f) trayPop[k] = 0.01f
+        if (engine.trayEmpty()) {
+            for (k in 0..2) trayPop[k] = -k * 0.12f // staggered spawn pop
+            Audio.play("spawn")
+        }
+        refreshDanger()
+        saveRun()
+        celebrateAchievements()
         afterMove()
     }
 
@@ -413,8 +503,16 @@ class GameScene(
         lastPlacedCells = list.toIntArray()
     }
 
+    /** Persist a resumable classic run; cleared when the round ends. */
+    private fun saveRun() {
+        if (engine.mode == Mode.CLASSIC && !engine.gameOver && !engine.goalMet) {
+            Save.runJson = engine.toJson()
+        } else {
+            Save.clearSavedRun()
+        }
+    }
+
     private fun afterMove() {
-        Achievements.checkAll()
         if (engine.goalMet && engine.mode != Mode.CLASSIC) {
             Audio.play("win")
             awardCoins = 30 + levelIndex.coerceAtLeast(0)
@@ -441,6 +539,7 @@ class GameScene(
                 if (engine.mode == Mode.DAILY) {
                     Save.dailiesDone++
                     Save.markDailyDone(dailySeed)
+                    awardCoins += min(50, Save.bumpDailyStreak(dailySeed) * 5)
                     if (engine.score > Save.bestDailyScore) Save.bestDailyScore = engine.score
                 }
                 Save.coins += awardCoins
@@ -451,6 +550,7 @@ class GameScene(
         }
         overlayAnim.reset()
         if (overlay == Overlay.GAMEOVER) {
+            Save.clearSavedRun()
             if (engine.score > Save.bestClassic && engine.mode == Mode.CLASSIC) {
                 Save.bestClassic = engine.score
             }
@@ -469,7 +569,48 @@ class GameScene(
         Save.playSeconds += (System.currentTimeMillis() - sessionStart) / 1000
         Missions.track(MissionType.PLAY_GAMES, 1)
         Missions.track(MissionType.SCORE_GAME, engine.score)
-        Achievements.checkAll()
+        celebrateAchievements()
+    }
+
+    /** Build a shareable score card and fire a share intent. */
+    private fun shareScore() {
+        Audio.play("click")
+        try {
+            val ctx = host.context
+            val S = 1080
+            val bc = android.graphics.Bitmap.createBitmap(S, S, android.graphics.Bitmap.Config.ARGB_8888)
+            val cv = android.graphics.Canvas(bc)
+            val th = theme
+            // background
+            D.gradientRect(cv, 0f, 0f, S.toFloat(), S.toFloat(), D.color(th.bgTop), D.color(th.bgBottom))
+            D.glowCircle(cv, S / 2f, S * 0.34f, S * 0.6f, D.color(th.accent), 60)
+            // emblem
+            val esz = 150f
+            var ex = S / 2f - esz * 1.5f
+            for (i in 0 until 6) {
+                val col = D.color(th.blockColors[i % 7])
+                D.blockCell(cv, ex + i * esz * 0.72f, S * 0.16f, ex + i * esz * 0.72f + esz * 0.6f, S * 0.16f + esz * 0.6f, col, esz * 0.12f)
+            }
+            D.text(cv, "BLOKKU", S / 2f, S * 0.34f, 130f, Color.WHITE)
+            D.text(cv, "${engine.score}", S / 2f, S * 0.52f, 200f, D.color(th.accent))
+            D.labelText(cv, s(R.string.score), S / 2f, S * 0.60f, 40f, D.withAlpha(D.color(th.textPrimary), 180))
+            D.text(cv, "${s(R.string.stats_lines)}: ${engine.linesCleared}   ${s(R.string.stats_max_combo)}: ×${engine.bestCombo}", S / 2f, S * 0.72f, 52f, D.color(th.textPrimary), bold = false)
+            // brand footer
+            D.rectStroke(cv, S * 0.3f, S * 0.84f, S * 0.7f, S * 0.84f + 4, D.withAlpha(D.color(th.accent), 200), 2f, 2f)
+            val dir = java.io.File(ctx.cacheDir, "share").apply { mkdirs() }
+            val f = java.io.File(dir, "blokku_score.png")
+            java.io.FileOutputStream(f).use { bc.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            val uri = androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", f)
+            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                putExtra(android.content.Intent.EXTRA_TEXT, "BLOKKU — ${engine.score}!")
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            ctx.startActivity(android.content.Intent.createChooser(intent, s(R.string.share_score)))
+        } catch (ex: Exception) {
+            addFloat(boardRect.centerX(), boardRect.centerY(), "✕", Color.WHITE, D.sp(20f))
+        }
     }
 
     // ============ power-ups ============
@@ -485,6 +626,8 @@ class GameScene(
                 engine.undo()
                 clearing.clear()
                 Audio.play("undo")
+                refreshDanger()
+                saveRun()
                 addFloat(boardRect.centerX(), boardRect.centerY(), s(R.string.undo_done), Color.WHITE, D.sp(18f))
             }
             PowerKind.ROTATE -> {
@@ -497,14 +640,26 @@ class GameScene(
                 if (Save.powerUps(kind) <= 0) { offerBuyPower(kind); return }
                 bombArmed = !bombArmed
                 rotateArmed = false
-                if (bombArmed) addFloat(boardRect.centerX(), boardRect.top - D.dp(8f), s(R.string.bomb_hint), Color.WHITE, D.sp(14f))
+                if (bombArmed) addFloat(boardRect.centerX(), trayY - D.dp(6f), s(R.string.bomb_hint), Color.WHITE, D.sp(14f))
             }
             PowerKind.SHUFFLE -> {
                 if (!Save.usePowerUp(kind)) { offerBuyPower(kind); return }
                 Save.powerupsUsed++
                 engine.shuffleTray()
-                for (k in 0..2) trayPop[k] = 0f
+                for (k in 0..2) trayPop[k] = -k * 0.12f
                 Audio.play("shuffle")
+                refreshDanger()
+                saveRun()
+                Missions.track(MissionType.USE_POWERUPS, 1)
+            }
+            PowerKind.HINT -> {
+                if (!Save.usePowerUp(kind)) { offerBuyPower(kind); return }
+                Save.powerupsUsed++
+                hintMove = engine.bestMove()
+                hintT = 2.4f
+                Audio.play("hint")
+                Haptic.soft()
+                addFloat(boardRect.centerX(), trayY - D.dp(6f), s(R.string.hint_hint), Color.WHITE, D.sp(14f))
                 Missions.track(MissionType.USE_POWERUPS, 1)
             }
         }
@@ -543,17 +698,21 @@ class GameScene(
         afterMove()
     }
 
-    private fun grantRandomPowerUp() {
-        val kind = PowerKind.entries[Random.nextInt(4)]
+    /** Meter-full grant: the power-up with the lowest stock + a coin drip. */
+    private fun grantNeededPowerUp() {
+        val kind = powerKinds.minBy { Save.powerUps(it) }
         Save.addPowerUp(kind, 1)
+        Save.coins += 5
         Audio.play("meter")
         val label = when (kind) {
             PowerKind.UNDO -> s(R.string.power_undo)
             PowerKind.ROTATE -> s(R.string.power_rotate)
             PowerKind.BOMB -> s(R.string.power_bomb)
             PowerKind.SHUFFLE -> s(R.string.power_shuffle)
+            PowerKind.HINT -> s(R.string.power_hint)
         }
-        addFloat(boardRect.centerX(), meterRect.bottom + D.dp(24f), "+1 $label", D.color(theme.accent), D.sp(17f))
+        addFloat(boardRect.centerX(), meterRect.bottom + D.dp(24f), "+1 $label · +5 ${s(R.string.coins)}", D.color(theme.accent), D.sp(16f))
+        coinPill?.bump()
     }
 
     private fun toastPowerEmpty() {
@@ -577,14 +736,42 @@ class GameScene(
         }
         renderHud(c)
         renderBoard(c)
+        renderTimerChip(c)
         renderPowerBar(c)
         renderTray(c)
         renderReturn(c)
         renderDrag(c)
         c.restore()
-        renderFx(c)
         renderComboBanner(c)
         if (overlay != Overlay.NONE) renderOverlay(c)
+        renderFx(c) // floats/particles on top of the dim so celebrations read
+    }
+
+    /** Countdown chip drawn over the board's top-right corner on timed levels. */
+    private fun renderTimerChip(c: Canvas) {
+        if (engine.timeLimitSec <= 0 || timeLeft < 0f) return
+        val tl = timeLeft.toInt()
+        val urgent = tl <= 10
+        val pw2 = D.dp(66f); val ph2 = D.dp(26f)
+        val px = boardRect.right - D.dp(10f) - pw2; val py = boardRect.top - ph2 / 2f
+        val pulse = if (urgent) 0.7f + 0.3f * kotlin.math.sin(host.globalTime * 10f) else 1f
+        val tcol = if (urgent) 0xFFFF5D73.toInt() else D.color(theme.accent)
+        D.rect(c, px, py + D.dp(2f), px + pw2, py + ph2 + D.dp(2f), D.withAlpha(Color.BLACK, 90), ph2 / 2)
+        D.gradientRect(c, px, py, px + pw2, py + ph2, D.withAlpha(tcol, (235 * pulse).toInt()), D.withAlpha(D.darken(tcol, 0.25f), (255 * pulse).toInt()), ph2 / 2)
+        Glyph.draw(c, "clock", RectF(px + D.dp(7f), py + ph2 * 0.22f, px + D.dp(7f) + ph2 * 0.56f, py + ph2 * 0.78f), Color.WHITE)
+        D.text(c, "$tl", px + D.dp(16f) + pw2 / 2f, py + ph2 * 0.70f, D.sp(13f), Color.WHITE)
+    }
+
+    /** On the game-over overlay, preview which cells the revive would clear. */
+    private fun renderRevivePreview(c: Canvas) {
+        if (overlay != Overlay.GAMEOVER || revived) return
+        val pulse = 0.55f + 0.45f * kotlin.math.sin(host.globalTime * 6f)
+        for (cc in engine.peekReviveCells()) {
+            val cr = cc / 9; val cx2 = cc % 9
+            val l = boardRect.left + cx2 * cell
+            val t = boardRect.top + cr * cell
+            D.rectStroke(c, l + 1f, t + 1f, l + cell - 1f, t + cell - 1f, D.withAlpha(0xFF62D97B.toInt(), (200 * pulse).toInt()), 2f, cell * 0.18f)
+        }
     }
 
     private fun renderHud(c: Canvas) {
@@ -595,7 +782,9 @@ class GameScene(
         D.text(c, "${engine.score}", w / 2f, hudTop + D.sp(22f), D.sp(30f), D.color(theme.textPrimary))
         val sub = when (engine.mode) {
             Mode.CLASSIC -> "${s(R.string.best)} ${max(Save.bestClassic, engine.score)}"
-            Mode.LEVEL -> "${s(R.string.level)} ${levelIndex + 1} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
+            Mode.LEVEL -> if (engine.timeLimitSec > 0)
+                "${s(R.string.level)} ${levelIndex + 1} • ${s(R.string.timed_badge)} • ${goalLabel()}"
+            else "${s(R.string.level)} ${levelIndex + 1} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
             Mode.DAILY -> "${s(R.string.menu_daily)} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
         }
         D.text(c, sub, w / 2f, hudTop + D.sp(22f) + D.sp(15f), D.sp(11f), D.withAlpha(D.color(theme.textPrimary), 190), bold = false)
@@ -660,26 +849,28 @@ class GameScene(
             )
         }
 
-        // ghost preview while dragging
+        // ghost preview while dragging — pulses softly so the landing spot reads
         val dragPiece = if (dragIndex >= 0) engine.tray[dragIndex] else null
         var clearPreview: Board.ClearResult? = null
         if (dragPiece != null && snapFits && snapRow >= 0 && snapCol >= 0) {
             clearPreview = engine.board.findClears(dragPiece, snapRow, snapCol)
+            val pulse = 0.75f + 0.25f * kotlin.math.sin(host.globalTime * 8f)
             // would-be cleared cells highlight
             for (cc in clearPreview.clearCells) {
                 val cr = cc / 9; val ccx = cc % 9
                 val l = boardRect.left + ccx * cell + cell * 0.05f
                 val t = boardRect.top + cr * cell + cell * 0.05f
-                D.rect(c, l, t, l + cell * 0.9f, t + cell * 0.9f, D.withAlpha(D.color(theme.accent), 110), cell * 0.18f)
+                D.rect(c, l, t, l + cell * 0.9f, t + cell * 0.9f, D.withAlpha(D.color(theme.accent), (150 * pulse).toInt()), cell * 0.18f)
             }
-            // ghost cells — bold enough to read the exact landing spot
+            // ghost cells
+            val ga = (160 + 60 * pulse).toInt()
             for (pc in dragPiece.cells) {
                 val gr = snapRow + (pc shr 4); val gc = snapCol + (pc and 15)
                 if (gr < 0 || gr > 8 || gc < 0 || gc > 8) continue
                 val l = boardRect.left + gc * cell + cell * 0.07f
                 val t = boardRect.top + gr * cell + cell * 0.07f
-                D.blockCell(c, l, t, l + cell * 0.86f, t + cell * 0.86f, cellColor(dragPiece.colorIndex + 1), cell * 0.2f, alpha = 200)
-                D.rectStroke(c, l + 1f, t + 1f, l + cell * 0.86f - 1f, t + cell * 0.86f - 1f, D.withAlpha(Color.WHITE, 120), 1.4f, cell * 0.2f)
+                D.blockCell(c, l, t, l + cell * 0.86f, t + cell * 0.86f, cellColor(dragPiece.colorIndex + 1), cell * 0.2f, alpha = ga)
+                D.rectStroke(c, l + 1f, t + 1f, l + cell * 0.86f - 1f, t + cell * 0.86f - 1f, D.withAlpha(Color.WHITE, (140 * pulse).toInt()), 1.4f, cell * 0.2f)
             }
         }
 
@@ -702,6 +893,20 @@ class GameScene(
             }
         }
 
+        // clear sweep shimmer — a bright bar slides along each cleared row/col
+        for (fx in clearing) {
+            val k = (fx.age / fx.life).coerceIn(0f, 1f)
+            val sa = (200 * (1f - k)).toInt()
+            for (cc in fx.cellsWithColor) {
+                val idx = cc and 0xFFFF
+                val cr = idx / 9; val ccx = idx % 9
+                val l = boardRect.left + ccx * cell
+                val t = boardRect.top + cr * cell
+                val shift = k * cell
+                D.rect(c, l + shift * 0.3f, t, l + cell + shift * 0.3f, t + cell, D.withAlpha(Color.WHITE, sa / 3), cell * 0.18f)
+            }
+        }
+
         // clearing fx: shrinking blocks
         for (fx in clearing) {
             val k = (fx.age / fx.life).coerceIn(0f, 1f)
@@ -715,6 +920,11 @@ class GameScene(
                 val t = boardRect.top + cr * cell + cell * 0.07f
                 drawCell(c, l, t, sc, cellColor(colr), colr, alpha)
             }
+        }
+        // danger vignette — board edge breathes red when almost nothing fits
+        if (fitsRemaining <= 4 && fitsRemaining >= 0 && overlay == Overlay.NONE) {
+            val dp2 = 0.5f + 0.5f * kotlin.math.sin(dangerPulse)
+            D.rectStroke(c, boardRect.left - D.dp(7f), boardRect.top - D.dp(7f), boardRect.right + D.dp(7f), boardRect.bottom + D.dp(7f), D.withAlpha(0xFFFF5D73.toInt(), (90 * dp2).toInt()), D.dp(3f), D.dp(20f))
         }
         c.restore()
     }
@@ -735,10 +945,8 @@ class GameScene(
         }
     }
 
-    private val powerTints = intArrayOf(0xFF64B5F6.toInt(), 0xFF7BE495.toInt(), 0xFFFF8A65.toInt(), 0xFFBA8DF5.toInt())
-
     private fun renderPowerBar(c: Canvas) {
-        for (i in 0..3) {
+        for (i in 0..4) {
             val r = powerRects[i]
             val kind = powerKinds[i]
             val tint = powerTints[i]
@@ -746,9 +954,10 @@ class GameScene(
             val armed = (kind == PowerKind.BOMB && bombArmed) || (kind == PowerKind.ROTATE && rotateArmed)
             val canUndo = kind != PowerKind.UNDO || engine.canUndo
             val usable = count > 0 && canUndo
+            val flash = (kind == PowerKind.HINT && hintT > 0f)
             val alpha = if (usable) 255 else 110
             // card
-            if (armed) {
+            if (armed || flash) {
                 D.rect(c, r.left, r.top + D.dp(3f), r.right, r.bottom + D.dp(3f), D.withAlpha(Color.BLACK, 80), D.dp(15f))
                 D.gradientRect(c, r.left, r.top, r.right, r.bottom, D.lighten(tint, 0.12f), D.darken(tint, 0.12f), D.dp(15f))
                 D.rectStroke(c, r.left + 0.8f, r.top + 0.8f, r.right - 0.8f, r.bottom - 0.8f, D.withAlpha(Color.WHITE, 200), D.dp(1.5f), D.dp(15f))
@@ -788,11 +997,11 @@ class GameScene(
             }
             D.card(c, sr.left, sr.top, sr.right, sr.bottom, D.color(theme.boardBg), D.dp(16f), elevated = true)
             val fitsAny = engine.board.anyFit(p)
-            val popK = Ease.outBack(trayPop[i])
+            val popK = Ease.outBack(trayPop[i].coerceIn(0f, 1f))
             val pieceW = p.cols * trayCell * popK
             val pieceH = p.rows * trayCell * popK
             val alpha = if (fitsAny) 255 else 110
-            for (pc in p.cells) {
+            if (trayPop[i] > 0f) for (pc in p.cells) {
                 val pr = pc shr 4; val pcc = pc and 15
                 val l = cx - pieceW / 2 + pcc * trayCell * popK + trayCell * 0.05f * popK
                 val t = cy - pieceH / 2 + pr * trayCell * popK + trayCell * 0.05f * popK
@@ -800,6 +1009,26 @@ class GameScene(
             }
             if (rotateArmed && fitsAny) {
                 D.rectStroke(c, slotRect.left, slotRect.top, slotRect.right, slotRect.bottom, D.color(theme.accent), D.dp(2f), D.dp(14f))
+            }
+        }
+        // hint ghost — pulsing suggested placement (slot + board cell)
+        val hm = hintMove
+        if (hm != null && hintT > 0f) {
+            val (slot, hr, hc) = hm
+            val hp = engine.tray[slot]
+            if (hp != null) {
+                val pulse = 0.55f + 0.45f * kotlin.math.sin(host.globalTime * 10f)
+                for (pc in hp.cells) {
+                    val gr = hr + (pc shr 4); val gc = hc + (pc and 15)
+                    val l = boardRect.left + gc * cell + cell * 0.08f
+                    val t = boardRect.top + gr * cell + cell * 0.08f
+                    D.blockCell(c, l, t, l + cell * 0.84f, t + cell * 0.84f, D.color(theme.accent), cell * 0.2f, (120 * pulse).toInt())
+                    D.rectStroke(c, l, t, l + cell * 0.84f, t + cell * 0.84f, D.withAlpha(D.color(theme.accent), (230 * pulse).toInt()), 1.6f, cell * 0.2f)
+                }
+                // glow ring on the tray slot that owns the suggested piece
+                trayRects[slot]?.let { sr ->
+                    D.rectStroke(c, sr.left + D.dp(2f), sr.top + D.dp(2f), sr.right - D.dp(2f), sr.bottom - D.dp(2f), D.withAlpha(0xFFFFE066.toInt(), (220 * pulse).toInt()), D.dp(2.5f), D.dp(14f))
+                }
             }
         }
     }
@@ -865,9 +1094,10 @@ class GameScene(
         val a = overlayAnim.raw
         val w = host.width.toFloat(); val h = host.height.toFloat()
         D.rect(c, 0f, 0f, w, h, D.withAlpha(Color.BLACK, (160 * a).toInt()))
+        renderRevivePreview(c)
         val dw = min(w - D.dp(40f), D.dp(340f))
         val dh = when (overlay) {
-            Overlay.GAMEOVER -> D.dp(300f)
+            Overlay.GAMEOVER -> D.dp(368f)
             Overlay.LEVEL_COMPLETE -> D.dp(320f)
             else -> D.dp(240f)
         }
@@ -892,8 +1122,8 @@ class GameScene(
         for (b in overlayButtons) b.render(c)
     }
 
-    private fun overlayBtn(l: Float, t: Float, r: Float, b: Float, label: String, bg: Int, onTap: () -> Unit): UiButton {
-        val btn = UiButton(RectF(l, t, r, b), label = label, bg = bg, fg = Color.WHITE, onTap = onTap)
+    private fun overlayBtn(l: Float, t: Float, r: Float, b: Float, label: String, bg: Int, textScale: Float = 1f, onTap: () -> Unit): UiButton {
+        val btn = UiButton(RectF(l, t, r, b), label = label, bg = bg, fg = Color.WHITE, onTap = onTap, textScale = textScale)
         btn.appear.t = btn.appear.duration + btn.appear.delay // fully visible
         overlayButtons.add(btn)
         return btn
@@ -925,7 +1155,8 @@ class GameScene(
     }
 
     private fun renderQuitOverlay(c: Canvas) {
-        overlayTitle(c, s(R.string.quit_confirm), dialogRect.top + D.dp(42f), D.sp(15f))
+        overlayTitle(c, s(R.string.quit_title), dialogRect.top + D.dp(42f), D.sp(20f))
+        D.text(c, s(if (engine.mode == Mode.CLASSIC) R.string.quit_confirm else R.string.quit_confirm_level), dialogRect.centerX(), dialogRect.top + D.dp(78f), D.sp(13f), D.withAlpha(D.color(theme.textPrimary), 190), bold = false)
         val bw = (dialogRect.width() - D.dp(60f)) / 2f
         val by = dialogRect.bottom - D.dp(70f)
         overlayBtn(dialogRect.left + D.dp(24f), by, dialogRect.left + D.dp(24f) + bw, by + D.dp(48f), s(R.string.no), D.lighten(D.color(theme.boardBg), 0.12f)) {
@@ -940,25 +1171,52 @@ class GameScene(
 
     private fun renderGameOverOverlay(c: Canvas) {
         val cx = dialogRect.centerX()
-        overlayTitle(c, s(R.string.game_over), dialogRect.top + D.dp(40f), D.sp(22f))
+        overlayTitle(c, s(R.string.game_over), dialogRect.top + D.dp(36f), D.sp(22f))
         val isBest = engine.mode == Mode.CLASSIC && engine.score >= Save.bestClassic && engine.score > 0
-        if (isBest) D.text(c, s(R.string.new_best), cx, dialogRect.top + D.dp(64f), D.sp(14f), D.color(theme.accent))
-        D.text(c, "${engine.score}", cx, dialogRect.top + D.dp(100f), D.sp(40f), D.color(theme.textPrimary))
+        if (isBest) {
+            // little crown pop over the score
+            val tw = D.textWidth(s(R.string.new_best), D.sp(14f)) + D.dp(26f)
+            D.rect(c, cx - tw / 2f, dialogRect.top + D.dp(50f), cx + tw / 2f, dialogRect.top + D.dp(50f) + D.dp(20f), D.withAlpha(0xFFFFD166.toInt(), 40), D.dp(10f))
+            D.rectStroke(c, cx - tw / 2f + 0.6f, dialogRect.top + D.dp(50f) + 0.6f, cx + tw / 2f - 0.6f, dialogRect.top + D.dp(70f) - 0.6f, D.withAlpha(0xFFFFD166.toInt(), 140), 1f, D.dp(10f))
+            D.text(c, s(R.string.new_best), cx, dialogRect.top + D.dp(65f), D.sp(13f), 0xFFFFD166.toInt())
+        }
+        D.text(c, "${engine.score}", cx, dialogRect.top + D.dp(104f), D.sp(42f), D.color(theme.textPrimary))
+        // stat row: lines / combo / best
+        val sy = dialogRect.top + D.dp(136f)
+        val stats = arrayOf(
+            Triple("stats", s(R.string.stats_lines), "${engine.linesCleared}"),
+            Triple("themes", s(R.string.stats_max_combo), "×${engine.bestCombo}"),
+            Triple("star", s(R.string.best), "${max(Save.bestClassic, engine.score)}"),
+        )
+        val sw2 = dialogRect.width() / 3f
+        for (i in stats.indices) {
+            val (g, lab, v) = stats[i]
+            val sx = dialogRect.left + sw2 * i + sw2 / 2f
+            Glyph.draw(c, g, RectF(sx - D.dp(7f), sy - D.dp(7f), sx + D.dp(7f), sy + D.dp(7f)), D.color(theme.accent))
+            D.text(c, v, sx, sy + D.sp(22f), D.sp(15f), D.color(theme.textPrimary))
+            D.labelText(c, lab, sx, sy + D.sp(36f), D.sp(7.5f), D.withAlpha(D.color(theme.textPrimary), 130))
+        }
         val bw = dialogRect.width() - D.dp(48f)
         val bx = dialogRect.left + D.dp(24f)
-        var by = dialogRect.top + D.dp(130f)
+        var by = dialogRect.top + D.dp(196f)
         if (!revived) {
-            val label = if (!Save.adsRemoved && Ads.rewardedReady) s(R.string.watch_ad_continue) else "${s(R.string.continue_game)} — 🪙50"
-            overlayBtn(bx, by, bx + bw, by + D.dp(48f), label, 0xFF62D97B.toInt()) {
+            val label = if (!Save.adsRemoved && Ads.rewardedReady) s(R.string.watch_ad_continue) else "${s(R.string.continue_game)} — 50"
+            val rb = overlayBtn(bx, by, bx + bw, by + D.dp(46f), label, 0xFF62D97B.toInt()) {
                 revive()
             }
-            by += D.dp(58f)
+            rb.icon = "g:coin"
+            by += D.dp(54f)
         }
-        overlayBtn(bx, by, bx + bw, by + D.dp(48f), s(R.string.restart), D.color(theme.accent)) {
+        val half = (bw - D.dp(10f)) / 2f
+        val shareB = overlayBtn(bx, by, bx + half, by + D.dp(44f), s(R.string.share_score), D.lighten(D.color(theme.boardBg), 0.12f), textScale = 0.85f) {
+            shareScore()
+        }
+        shareB.icon = "g:share"
+        overlayBtn(bx + half + D.dp(10f), by, bx + bw, by + D.dp(44f), s(R.string.restart), D.color(theme.accent), textScale = 0.9f) {
             restart(); Audio.play("click")
         }
-        by += D.dp(58f)
-        overlayBtn(bx, by, bx + bw, by + D.dp(48f), s(R.string.quit), D.lighten(D.color(theme.boardBg), 0.12f)) {
+        by += D.dp(52f)
+        overlayBtn(bx, by, bx + bw, by + D.dp(44f), s(R.string.quit), D.lighten(D.color(theme.boardBg), 0.12f), textScale = 0.9f) {
             commitStats(); scene().pop(); Ads.maybeInterstitial(host.context)
         }
     }
@@ -1013,6 +1271,7 @@ class GameScene(
 
     private fun restart() {
         commitStats()
+        Save.clearSavedRun()
         val fresh = when (engine.mode) {
             Mode.CLASSIC -> GameScene(GameEngine.classic())
             Mode.LEVEL -> GameScene(GameEngine.level(Levels.get(levelIndex)), levelIndex)

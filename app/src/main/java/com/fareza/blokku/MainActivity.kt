@@ -28,13 +28,18 @@ class MainActivity : Activity() {
 
         Audio.init(this)
         Haptic.init(this)
-        Ads.init(this)
-        Billing.init(this)
+        // ad SDK init is deferred ~1.5s so cold start stays instant
+        com.fareza.blokku.reminder.Reminder.ensureChannel(this)
+        if (Save.reminderOn) com.fareza.blokku.reminder.Reminder.schedule(this)
 
         gameView = GameView(this)
         setContentView(gameView)
         gameView.scenes.replace(SplashScene())
         hideSystemUi()
+        gameView.postDelayed({
+            Ads.init(this)
+            Billing.init(this)
+        }, 1500)
     }
 
     private fun applyLanguage() {
@@ -72,6 +77,8 @@ class MainActivity : Activity() {
         Audio.onAppResume()
         hideSystemUi()
         gameView.wake()
+        // rescheduling is cheap and survives reboots/time changes
+        if (Save.reminderOn) com.fareza.blokku.reminder.Reminder.schedule(this)
     }
 
     override fun onPause() {

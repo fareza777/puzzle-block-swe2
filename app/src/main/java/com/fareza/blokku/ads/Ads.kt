@@ -91,7 +91,7 @@ object Ads {
         val act = context as? Activity
         if (ad == null || act == null) {
             rewardedReady = false
-            loadRewarded(context)
+            if (initialized) try { loadRewarded(context) } catch (e: Exception) {}
             cb(false)
             return
         }

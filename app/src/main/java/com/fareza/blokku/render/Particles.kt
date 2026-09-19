@@ -24,12 +24,16 @@ class Particles {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val tmp = RectF()
 
+    /** Hard cap keeps low-end devices smooth even during multi-clears. */
+    private val MAX = 220
+    private fun room(n: Int) = minOf(n, (MAX - list.size).coerceAtLeast(0))
+
     fun burst(
         x: Float, y: Float, color: Int, count: Int = 14,
         speed: Float = 400f, size: Float = 10f, life: Float = 0.7f,
         gravity: Float = 900f, shape: Int = 1,
     ) {
-        repeat(count) {
+        repeat(room(count)) {
             val a = Random.nextFloat() * 6.283f
             val sp = speed * (0.4f + Random.nextFloat() * 0.9f)
             list.add(
@@ -47,7 +51,7 @@ class Particles {
     }
 
     fun ring(x: Float, y: Float, color: Int, count: Int = 24, speed: Float = 500f, size: Float = 8f) {
-        for (i in 0 until count) {
+        for (i in 0 until room(count)) {
             val a = i.toFloat() / count * 6.283f
             list.add(
                 Particle(
@@ -59,7 +63,7 @@ class Particles {
     }
 
     fun sparkle(x: Float, y: Float, w: Float, h: Float, color: Int, count: Int = 8) {
-        repeat(count) {
+        repeat(room(count)) {
             list.add(
                 Particle(
                     x + Random.nextFloat() * w, y + Random.nextFloat() * h,

@@ -44,7 +44,7 @@ object Save {
     }
 
     private fun defaultStock(kind: PowerKind) = when (kind) {
-        PowerKind.UNDO -> 3; PowerKind.ROTATE -> 2; PowerKind.BOMB -> 1; PowerKind.SHUFFLE -> 1
+        PowerKind.UNDO -> 3; PowerKind.ROTATE -> 2; PowerKind.BOMB -> 1; PowerKind.SHUFFLE -> 1; PowerKind.HINT -> 2
     }
 
     // ---- records ----
@@ -127,6 +127,38 @@ object Save {
         if (!list.contains(dateKey.toString())) list.add(dateKey.toString())
         p.edit().putString("dailyDone", list.takeLast(400).joinToString(",")).apply()
     }
+
+    // ---- daily streak ----
+    var dailyStreak get() = p.getInt("dStreak", 0); set(v) = p.edit().putInt("dStreak", v).apply()
+    var lastDailyDoneKey get() = p.getLong("dLastDone", 0L); set(v) = p.edit().putLong("dLastDone", v).apply()
+
+    /** Call when a daily challenge is completed; returns the new streak length. */
+    fun bumpDailyStreak(todayKey: Long): Int {
+        val cal = java.util.Calendar.getInstance()
+        cal.timeInMillis = System.currentTimeMillis()
+        cal.add(java.util.Calendar.DAY_OF_MONTH, -1)
+        val y = cal.get(java.util.Calendar.YEAR)
+        val m = cal.get(java.util.Calendar.MONTH) + 1
+        val d = cal.get(java.util.Calendar.DAY_OF_MONTH)
+        val yesterdayKey = y * 10000L + m * 100 + d
+        dailyStreak = if (lastDailyDoneKey == yesterdayKey) dailyStreak + 1 else 1
+        lastDailyDoneKey = todayKey
+        return dailyStreak
+    }
+
+    // ---- saved run (Continue feature) ----
+    var runJson get() = p.getString("runJson", "")!!; set(v) = p.edit().putString("runJson", v).apply()
+    fun hasSavedRun() = runJson.isNotEmpty()
+    fun clearSavedRun() { runJson = "" }
+
+    // ---- daily reminder notification ----
+    var reminderOn get() = p.getBoolean("reminder", false); set(v) = p.edit().putBoolean("reminder", v).apply()
+
+    // ---- theme-of-the-week sale ----
+    fun weekSeed(): Int {
+        val cal = java.util.Calendar.getInstance()
+        return cal.get(java.util.Calendar.YEAR) * 100 + cal.get(java.util.Calendar.WEEK_OF_YEAR)
+    }
 }
 
-enum class PowerKind { UNDO, ROTATE, BOMB, SHUFFLE }
+enum class PowerKind { UNDO, ROTATE, BOMB, SHUFFLE, HINT }
