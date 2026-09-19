@@ -90,6 +90,8 @@ class GameScene(
     private var dragVisX = 0f
     private var dragVisY = 0f
     private var dragScale = 0f
+    private var liftT = 0f   // piece floats up from the finger smoothly on pickup
+    private var tilt = 0f    // subtle sway while dragging (degrees)
     // return-flight animation when a drop is rejected
     private var retPiece: Piece? = null
     private var retX = 0f; private var retY = 0f
@@ -284,16 +286,23 @@ class GameScene(
     private fun updateDragVisual(dt: Float) {
         val p = engine.tray.getOrNull(dragIndex)
         if (dragIndex >= 0 && p != null) {
-            dragScale = (dragScale + dt * 8f).coerceAtMost(1f)
-            val cur = trayCell + (cell - trayCell) * Ease.outCubic(dragScale)
+            dragScale = (dragScale + dt * 9f).coerceAtMost(1f)
+            liftT = (liftT + dt * 7f).coerceAtMost(1f)
+            val lift = Ease.outCubic(liftT) * dragOffY
+            // outBack overshoot: the piece pops slightly big then settles
+            val cur = trayCell + (cell - trayCell) * Ease.outBack(dragScale)
             val pw = p.cols * cur
             val ph = p.rows * cur
             val tx = dragX - pw * grabFracX
             // keep the piece's bottom edge just above the fingertip
-            val ty = dragY - dragOffY - ph / 2f
-            val k = min(1f, dt * 30f)
-            dragVisX += (tx - dragVisX) * k
-            dragVisY += (ty - dragVisY) * k
+            val ty = dragY - lift - ph / 2f
+            // X lerps a touch softer than Y so the piece feels weighty but glued
+            val prevX = dragVisX
+            dragVisX += (tx - dragVisX) * min(1f, dt * 26f)
+            dragVisY += (ty - dragVisY) * min(1f, dt * 34f)
+            // sway: tilt follows horizontal speed, decays to flat
+            val vx = (dragVisX - prevX) / max(dt, 0.004f)
+            tilt += ((vx * 0.006f).coerceIn(-9f, 9f) - tilt) * min(1f, dt * 9f)
         }
         // rejected drop flies back to its tray slot
         if (retPiece != null) {
@@ -356,8 +365,11 @@ class GameScene(
                         val pw0 = (p0?.cols ?: 1) * trayCell
                         grabFracX = ((e.x - (slotCx - pw0 / 2f)) / pw0).coerceIn(0f, 1f)
                         dragScale = 0f
+                        liftT = 0f
+                        tilt = 0f
                         dragVisX = e.x - pw0 * grabFracX
-                        dragVisY = e.y - dragOffY - (p0?.rows ?: 1) * trayCell / 2f
+                        // start at the finger (no lift yet) — it floats up over ~140ms
+                        dragVisY = e.y - (p0?.rows ?: 1) * trayCell / 2f
                         Audio.playVaried("pickup")
                         Haptic.tick()
                         hintMove = null; hintT = 0f
@@ -435,11 +447,16 @@ class GameScene(
         snapFits = snapRow >= -1 && snapCol >= -1 && engine.board.fits(p, snapRow, snapCol)
         // also allow preview within tolerance: if slightly off, find nearest fit within 1 cell
         if (!snapFits) {
+            val baseR = snapRow; val baseC = snapCol
+            var found = false
+            var bestD = 99
             for (dr in -1..1) for (dc in -1..1) {
-                if (engine.board.fits(p, snapRow + dr, snapCol + dc)) {
-                    snapRow += dr; snapCol += dc; snapFits = true; break
+                val d = dr * dr + dc * dc
+                if (d < bestD && engine.board.fits(p, baseR + dr, baseC + dc)) {
+                    bestD = d; snapRow = baseR + dr; snapCol = baseC + dc; found = true
                 }
             }
+            snapFits = found
         }
         // light tick whenever the landing cell changes — feels tactile
         if (snapFits && (snapRow != lastSnapR || snapCol != lastSnapC)) {
@@ -493,6 +510,7 @@ class GameScene(
                 grantNeededPowerUp()
                 feverBannerT = 1.4f
                 Audio.play("win", 1.2f)
+                earnShard(1)
             }
             if (res.gemsCollected > 0) {
                 val coins = res.gemsCollected * 10
@@ -500,11 +518,34 @@ class GameScene(
                 addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.24f, "+$coins", 0xFFFFD75E.toInt(), D.sp(22f))
                 Audio.play("coin")
             }
+            // bomb cells detonated by the clear — bigger boom juice
+            if (res.bombsDetonated > 0) {
+                Audio.play("bomb", 0.9f + res.bombsDetonated * 0.05f)
+                Haptic.big()
+                boardShake = 0.45f
+                for (cc in res.boomCells) {
+                    val br2 = cc / 9; val bc2 = cc % 9
+                    particles.burst(
+                        boardRect.left + (bc2 + 0.5f) * cell, boardRect.top + (br2 + 0.5f) * cell,
+                        0xFFFF8A3C.toInt(), count = 3, speed = D.dp(240f), size = D.dp(9f),
+                        life = 0.55f, gravity = D.dp(600f),
+                    )
+                }
+                addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.12f, s(R.string.boom_float), 0xFFFF8A3C.toInt(), D.sp(20f))
+            }
+            // combo milestones pay coins — keeps the chain thrilling
+            if (res.comboCount >= 3) {
+                val pay = res.comboCount * 2
+                Save.coins += pay
+                addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.7f, "+$pay ${s(R.string.coins)}", 0xFFFFD75E.toInt(), D.sp(16f))
+                coinPill?.bump()
+            }
             if (res.perfectClear) {
                 perfectBannerT = 1.6f
                 Audio.play("clear3", 1.1f)
                 Haptic.big()
                 particles.burst(boardRect.centerX(), boardRect.centerY(), 0xFFFFD75E.toInt(), count = 40, speed = D.dp(320f), size = D.dp(10f), life = 0.9f, gravity = D.dp(300f))
+                earnShard(1)
             }
         } else {
             Audio.playVaried("place")
@@ -533,9 +574,10 @@ class GameScene(
         lastPlacedCells = list.toIntArray()
     }
 
-    /** Persist a resumable classic run; cleared when the round ends. */
+    /** Persist a resumable classic run; cleared when a classic round ends (daily/level runs never touch it). */
     private fun saveRun() {
-        if (engine.mode == Mode.CLASSIC && !engine.gameOver && !engine.goalMet) {
+        if (engine.mode != Mode.CLASSIC) return
+        if (!engine.gameOver && !engine.goalMet) {
             Save.runJson = engine.toJson()
         } else {
             Save.clearSavedRun()
@@ -573,15 +615,16 @@ class GameScene(
                     if (engine.score > Save.bestDailyScore) Save.bestDailyScore = engine.score
                 }
                 Save.coins += awardCoins
+                earnShard(1) // level/daily completion always banks a shard
                 starAnimT = 0f
                 Overlay.LEVEL_COMPLETE
             }
             else -> Overlay.GAMEOVER
         }
         overlayAnim.reset()
-        if (overlay == Overlay.GAMEOVER) {
+        if (overlay == Overlay.GAMEOVER && engine.mode == Mode.CLASSIC) {
             Save.clearSavedRun()
-            if (engine.score > Save.bestClassic && engine.mode == Mode.CLASSIC) {
+            if (engine.score > Save.bestClassic) {
                 Save.bestClassic = engine.score
             }
         }
@@ -827,9 +870,9 @@ class GameScene(
             Mode.LEVEL -> if (engine.timeLimitSec > 0)
                 "${s(R.string.level)} ${levelIndex + 1} • ${s(R.string.timed_badge)} • ${goalLabel()}"
             else "${s(R.string.level)} ${levelIndex + 1} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
-            Mode.DAILY -> "${s(R.string.menu_daily)} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
+            Mode.DAILY -> "${s(R.string.menu_daily)}${dailyModLabel()} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
         }
-        D.text(c, sub, w / 2f, hudTop + D.sp(22f) + D.sp(15f), D.sp(11f), D.withAlpha(D.color(theme.textPrimary), 190), bold = false)
+        D.textFit(c, sub, w / 2f, hudTop + D.sp(22f) + D.sp(15f), D.sp(11f), w - D.dp(150f), D.withAlpha(D.color(theme.textPrimary), 190), bold = false)
         if (coinPill == null) coinPill = com.fareza.blokku.ui.CoinPill(w - D.dp(106f), hudTop - D.dp(4f)) { onCoinsTap() }
         coinPill?.render(c)
         // meter — taller pill with gradient fill
@@ -854,6 +897,14 @@ class GameScene(
         }
     }
 
+    /** Fuse-spark bomb marking a bomb cell — line through it = 3x3 boom. */
+    private fun drawBombCell(c: Canvas, cx: Float, cy: Float, r: Float) {
+        val tw = 0.65f + 0.35f * kotlin.math.sin(host.globalTime * 9f)
+        D.circle(c, cx, cy + r * 0.08f, r * 0.62f, D.withAlpha(0xFF2E2138.toInt(), 235))
+        D.rectStroke(c, cx - r * 0.62f, cy - r * 0.54f, cx + r * 0.62f, cy + r * 0.7f, D.withAlpha(Color.WHITE, 60), 1.2f, r * 0.6f)
+        Glyph.draw(c, "bomb", RectF(cx - r * 0.5f, cy - r * 0.58f, cx + r * 0.5f, cy + r * 0.42f), D.withAlpha(0xFFFF9E4F.toInt(), (220 * tw).toInt() + 35))
+    }
+
     /** Small spark diamond marking a gem cell. */
     private fun drawGem(c: Canvas, cx: Float, cy: Float, r: Float) {
         val tw = 0.75f + 0.25f * kotlin.math.sin(host.globalTime * 6f)
@@ -868,6 +919,26 @@ class GameScene(
         val ip = android.graphics.Path()
         ip.moveTo(cx, cy - ir); ip.lineTo(cx + ir, cy); ip.lineTo(cx, cy + ir); ip.lineTo(cx - ir, cy); ip.close()
         c.drawPath(ip, paint)
+    }
+
+    private fun dailyModLabel(): String = when (engine.dailyModifier) {
+        1 -> " · ${s(R.string.daily_mod_floor)}"
+        2 -> " · ${s(R.string.daily_mod_gems)}"
+        else -> ""
+    }
+
+    /** Award star shards; every 5 converts to a coin jackpot automatically. */
+    private fun earnShard(n: Int) {
+        if (n <= 0) return
+        Save.shards += n
+        addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.82f, "+$n ${s(R.string.shard_label)}", 0xFFFFE066.toInt(), D.sp(14f))
+        while (Save.shards >= 5) {
+            Save.shards -= 5
+            Save.coins += 200
+            addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.18f, s(R.string.shard_convert, 5, 200), 0xFFFFE066.toInt(), D.sp(18f))
+            Audio.play("reward")
+            coinPill?.bump()
+        }
     }
 
     private fun goalLabel(): String = when (engine.goal.type) {
@@ -956,6 +1027,7 @@ class GameScene(
                 }
                 drawCell(c, l, t, scale, cellColor(v), v)
                 if (engine.board.gems[idx]) drawGem(c, l + cell * 0.43f, t + cell * 0.43f, cell * 0.26f)
+                if (engine.board.bombs[idx]) drawBombCell(c, l + cell * 0.43f, t + cell * 0.43f, cell * 0.34f)
             }
         }
 
@@ -1047,7 +1119,7 @@ class GameScene(
             D.circle(c, r.right - D.dp(6f), r.top + D.dp(6f), D.dp(8.5f), badgeCol)
             D.text(c, "$count", r.right - D.dp(6f), r.top + D.dp(6f) + D.sp(9f) * 0.36f, D.sp(9f), Color.WHITE)
             // name label under the button
-            D.labelText(c, s(powerNameRes[i]), r.centerX(), r.bottom + D.dp(10.5f), D.sp(8f), D.withAlpha(D.color(theme.textPrimary), if (usable) 200 else 110), spacing = 0.1f)
+            D.labelTextFit(c, s(powerNameRes[i]), r.centerX(), r.bottom + D.dp(10.5f), D.sp(8f), r.width() + D.dp(10f), D.withAlpha(D.color(theme.textPrimary), if (usable) 200 else 110), spacing = 0.1f)
         }
     }
 
@@ -1080,6 +1152,7 @@ class GameScene(
                 val t = cy - pieceH / 2 + pr * trayCell * popK + trayCell * 0.05f * popK
                 D.blockCell(c, l, t, l + trayCell * 0.9f * popK, t + trayCell * 0.9f * popK, cellColor(p.colorIndex + 1), trayCell * 0.2f, alpha)
                 if (pc == engine.trayGem[i]) drawGem(c, l + trayCell * 0.45f * popK, t + trayCell * 0.45f * popK, trayCell * 0.24f)
+                if (pc == engine.trayBomb[i]) drawBombCell(c, l + trayCell * 0.45f * popK, t + trayCell * 0.45f * popK, trayCell * 0.36f)
             }
             if (rotateArmed && fitsAny) {
                 D.rectStroke(c, slotRect.left, slotRect.top, slotRect.right, slotRect.bottom, D.color(theme.accent), D.dp(2f), D.dp(14f))
@@ -1110,11 +1183,15 @@ class GameScene(
     private fun renderDrag(c: Canvas) {
         if (dragIndex < 0) return
         val p = engine.tray[dragIndex] ?: return
-        val cur = trayCell + (cell - trayCell) * Ease.outCubic(dragScale)
+        val cur = trayCell + (cell - trayCell) * Ease.outBack(dragScale)
         val l0 = dragVisX
         val t0 = dragVisY
         val docked = snapFits && snapRow >= 0 && snapCol >= 0
         val liftShadow = if (docked) D.dp(2f) else D.dp(7f)
+        val pcx0 = l0 + p.cols * cur / 2f
+        val pcy0 = t0 + p.rows * cur / 2f
+        c.save()
+        if (tilt != 0f && !docked) c.rotate(tilt, pcx0, pcy0)
         // lift shadow
         for (pc in p.cells) {
             val pr = pc shr 4; val pcx = pc and 15
@@ -1128,7 +1205,9 @@ class GameScene(
             val t = t0 + pr * cur + cur * 0.05f
             D.blockCell(c, l, t, l + cur * 0.9f, t + cur * 0.9f, cellColor(p.colorIndex + 1), cur * 0.2f)
             if (pc == engine.trayGem[dragIndex]) drawGem(c, l + cur * 0.45f, t + cur * 0.45f, cur * 0.24f)
+            if (pc == engine.trayBomb[dragIndex]) drawBombCell(c, l + cur * 0.45f, t + cur * 0.45f, cur * 0.36f)
         }
+        c.restore()
     }
 
     /** Piece flying back to its slot after an invalid drop. */
@@ -1152,7 +1231,7 @@ class GameScene(
             val alpha = (feverBannerT / 0.4f).coerceIn(0f, 1f)
             c.save()
             c.scale(Ease.outBack(appear), Ease.outBack(appear), w / 2f, boardRect.top + boardRect.height() * 0.3f)
-            D.text(c, s(R.string.fever_banner), w / 2f, boardRect.top + boardRect.height() * 0.3f, D.sp(30f), 0xFFFFB300.toInt(), alpha = (255 * alpha).toInt())
+            D.textFit(c, s(R.string.fever_banner), w / 2f, boardRect.top + boardRect.height() * 0.3f, D.sp(30f), w - D.dp(48f), 0xFFFFB300.toInt(), alpha = (255 * alpha).toInt())
             c.restore()
         }
         if (perfectBannerT > 0f) {
@@ -1160,7 +1239,7 @@ class GameScene(
             val alpha = (perfectBannerT / 0.45f).coerceIn(0f, 1f)
             c.save()
             c.scale(Ease.outBack(appear), Ease.outBack(appear), w / 2f, boardRect.top + boardRect.height() * 0.56f)
-            D.text(c, s(R.string.perfect_banner), w / 2f, boardRect.top + boardRect.height() * 0.56f, D.sp(30f), 0xFFFFD75E.toInt(), alpha = (255 * alpha).toInt())
+            D.textFit(c, s(R.string.perfect_banner), w / 2f, boardRect.top + boardRect.height() * 0.56f, D.sp(30f), w - D.dp(48f), 0xFFFFD75E.toInt(), alpha = (255 * alpha).toInt())
             c.restore()
         }
     }
@@ -1195,7 +1274,7 @@ class GameScene(
         val dh = when (overlay) {
             Overlay.GAMEOVER -> D.dp(368f)
             Overlay.LEVEL_COMPLETE -> D.dp(320f)
-            Overlay.POWERS -> D.dp(396f)
+            Overlay.POWERS -> D.dp(420f)
             else -> D.dp(240f)
         }
         val dl = (w - dw) / 2f
@@ -1229,8 +1308,9 @@ class GameScene(
 
     private fun overlayTitle(c: Canvas, title: String, y: Float, size: Float = D.sp(23f)) {
         val cx = dialogRect.centerX()
-        D.text(c, title, cx, y, size, D.color(theme.textPrimary))
-        val tw = D.textWidth(title, size)
+        val fs = D.fitSize(title, size, dialogRect.width() - D.dp(48f))
+        D.text(c, title, cx, y, fs, D.color(theme.textPrimary))
+        val tw = D.textWidth(title, fs)
         D.rect(c, cx - tw / 2f + D.dp(3f), y + D.sp(7f), cx + tw / 2f - D.dp(3f), y + D.sp(7f) + D.dp(2.5f), D.color(theme.accent), D.dp(1.5f))
     }
 
@@ -1265,13 +1345,15 @@ class GameScene(
             val chipR = D.dp(15f)
             D.circle(c, cx, ry + chipR, chipR, D.withAlpha(tint, 46))
             Glyph.draw(c, powerGlyphs[i], RectF(cx - chipR * 0.66f, ry + chipR - chipR * 0.66f, cx + chipR * 0.66f, ry + chipR + chipR * 0.66f), tint)
-            D.labelText(c, s(powerNameRes[i]), cx + chipR + D.dp(10f), ry + D.sp(11f), D.sp(10.5f), tint, align = Paint.Align.LEFT)
-            D.text(c, s(powerDescRes[i]), cx + chipR + D.dp(10f), ry + D.sp(11f) + D.sp(13f), D.sp(11.5f), D.withAlpha(D.color(theme.textPrimary), 200), align = Paint.Align.LEFT, bold = false)
+            val tx = cx + chipR + D.dp(10f)
+            val maxW = dialogRect.right - tx - D.dp(14f)
+            D.labelTextFit(c, s(powerNameRes[i]), tx, ry + D.sp(11f), D.sp(10.5f), maxW, tint, align = Paint.Align.LEFT)
+            D.textFit(c, s(powerDescRes[i]), tx, ry + D.sp(11f) + D.sp(13f), D.sp(11.5f), maxW, D.withAlpha(D.color(theme.textPrimary), 200), align = Paint.Align.LEFT, bold = false)
             ry += D.dp(44f)
         }
         var hy = ry + D.dp(4f)
         for (line in s(R.string.powers_hint).split('\n')) {
-            D.text(c, line, dialogRect.centerX(), hy, D.sp(9.8f), D.withAlpha(D.color(theme.textPrimary), 150), bold = false)
+            D.textFit(c, line, dialogRect.centerX(), hy, D.sp(9.8f), dialogRect.width() - D.dp(36f), D.withAlpha(D.color(theme.textPrimary), 150), bold = false)
             hy += D.dp(15f)
         }
         overlayBtn(dialogRect.left + D.dp(24f), dialogRect.bottom - D.dp(56f), dialogRect.right - D.dp(24f), dialogRect.bottom - D.dp(12f), s(R.string.got_it), D.color(theme.accent)) {

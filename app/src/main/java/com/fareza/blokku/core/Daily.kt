@@ -25,9 +25,28 @@ object Daily {
 
     fun dateKey(): Long = seedForToday()
 
+    /** A per-day twist so the challenge feels different every morning:
+     *  0 = normal, 1 = Blocked Floor (board starts pre-seeded), 2 = Gem Rush. */
+    fun modifierFor(seed: Long): Int = Random(seed * 53 + 19).nextInt(3)
+
     fun todayEngine(): GameEngine {
         val seed = seedForToday()
         val (goal, moves) = challengeFor(seed)
-        return GameEngine.daily(seed, goal, moves)
+        val e = GameEngine.daily(seed, goal, moves)
+        e.dailyModifier = modifierFor(seed)
+        when (e.dailyModifier) {
+            1 -> {
+                // seed the lower rows — same approach as preset levels
+                val pr = Random(seed * 7 + 3)
+                for (r in e.board.size - 2 until e.board.size) {
+                    for (c in 0 until e.board.size) {
+                        if (pr.nextFloat() < 0.5f) e.board.cells[r * e.board.size + c] = pr.nextInt(6) + 1
+                    }
+                }
+                e.ensureTrayFits()
+            }
+            2 -> e.gemChance = 0.5f
+        }
+        return e
     }
 }

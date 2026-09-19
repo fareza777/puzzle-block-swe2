@@ -203,9 +203,10 @@ class MenuScene : BaseScene() {
         val icy = r.centerY()
         D.circle(c, r.left + D.dp(34f), icy, chipR, D.withAlpha(0xFF7BE495.toInt(), 40))
         Glyph.draw(c, "check", RectF(r.left + D.dp(34f) - chipR * 0.55f, icy - chipR * 0.55f, r.left + D.dp(34f) + chipR * 0.55f, icy + chipR * 0.55f), 0xFF7BE495.toInt())
-        D.labelText(c, s(R.string.daily_reward), r.left + D.dp(60f), icy - D.sp(3f), D.sp(11f), D.withAlpha(D.color(theme.textPrimary), 150), align = Paint.Align.LEFT)
+        val maxTw = r.right - (r.left + D.dp(60f)) - D.dp(14f)
+        D.labelTextFit(c, s(R.string.daily_reward), r.left + D.dp(60f), icy - D.sp(3f), D.sp(11f), maxTw, D.withAlpha(D.color(theme.textPrimary), 150), align = Paint.Align.LEFT)
         val status = if (Save.dailyStreak > 0) "${s(R.string.claimed)} • ${s(R.string.day_streak, Save.dailyStreak)}" else s(R.string.claimed)
-        D.text(c, status, r.left + D.dp(60f), icy + D.sp(13f), D.sp(13f), D.withAlpha(D.color(theme.textPrimary), 200), bold = false, align = Paint.Align.LEFT)
+        D.textFit(c, status, r.left + D.dp(60f), icy + D.sp(13f), D.sp(13f), maxTw, D.withAlpha(D.color(theme.textPrimary), 200), bold = false, align = Paint.Align.LEFT)
     }
 
     /** Bottom strip: best / games / best combo — taps through to Stats. */
@@ -223,9 +224,10 @@ class MenuScene : BaseScene() {
             val (ic, label, value) = cols[i]
             val cx = r.left + cw * i + cw / 2f
             val tint = theme.blockColors[i * 2]
-            Glyph.draw(c, ic, RectF(cx - D.textWidth(value, D.sp(15f)) / 2f - D.dp(16f), r.top + D.sp(26f) - D.dp(7f), cx - D.textWidth(value, D.sp(15f)) / 2f - D.dp(2f), r.top + D.sp(26f) + D.dp(7f)), D.color(tint))
-            D.text(c, value, cx + D.dp(6f), r.top + D.sp(26f), D.sp(15f), D.color(theme.textPrimary))
-            D.labelText(c, label, cx, r.top + D.sp(42f), D.sp(8.5f), D.withAlpha(D.color(theme.textPrimary), 130))
+            val vs = D.fitSize(value, D.sp(15f), cw - D.dp(30f))
+            Glyph.draw(c, ic, RectF(cx - D.textWidth(value, vs) / 2f - D.dp(16f), r.top + D.sp(26f) - D.dp(7f), cx - D.textWidth(value, vs) / 2f - D.dp(2f), r.top + D.sp(26f) + D.dp(7f)), D.color(tint))
+            D.text(c, value, cx + D.dp(6f), r.top + D.sp(26f), vs, D.color(theme.textPrimary))
+            D.labelTextFit(c, label, cx, r.top + D.sp(42f), D.sp(8.5f), cw - D.dp(10f), D.withAlpha(D.color(theme.textPrimary), 130))
             if (i > 0) D.rect(c, r.left + cw * i - 0.5f, r.top + D.dp(14f), r.left + cw * i + 0.5f, r.bottom - D.dp(14f), D.withAlpha(Color.WHITE, 22), 0f)
         }
     }

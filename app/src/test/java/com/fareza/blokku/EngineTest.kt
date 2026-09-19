@@ -307,4 +307,72 @@ class EngineTest {
         val oldJson = engine.toJson().split(';').take(19).joinToString(";")
         assertTrue(GameEngine.fromJson(oldJson) != null)
     }
+
+    @Test
+    fun `bomb cell detonates 3x3 when its line clears`() {
+        val engine = GameEngine(Board(9), Random(2))
+        // row 0 has 8 cells; a bomb piece fills the last gap
+        for (c in 0 until 8) engine.board.cells[c] = 1
+        // blocks next to the bomb at (0,8) that should get blown away: r1 c7 + r1 c8
+        engine.board.cells[16] = 2; engine.board.cells[17] = 2
+        engine.tray[0] = single(); engine.tray[1] = null; engine.tray[2] = null
+        engine.trayBomb[0] = 0
+        val res = engine.place(0, 0, 8)
+        assertTrue(res.bombsDetonated >= 1)
+        // the blast cleared the neighbours inside the 3x3
+        assertEquals(0, engine.board.cells[16])
+        assertEquals(0, engine.board.cells[17])
+        assertFalse(engine.board.bombs[8])
+    }
+
+    @Test
+    fun `bombs chain into other bombs`() {
+        val engine = GameEngine(Board(9), Random(3))
+        for (c in 0 until 8) engine.board.cells[c] = 1
+        // second bomb two rows down inside blast radius
+        engine.board.cells[17] = 4; engine.board.bombs[17] = true
+        engine.board.cells[26] = 4 // victim under bomb B
+        engine.tray[0] = single(); engine.tray[1] = null; engine.tray[2] = null
+        engine.trayBomb[0] = 0
+        val res = engine.place(0, 0, 8)
+        assertTrue(res.bombsDetonated >= 2)
+        assertEquals(0, engine.board.cells[26])
+        assertFalse(engine.board.bombs[17])
+    }
+
+    @Test
+    fun `bomb power-up detonates bombs inside blast`() {
+        val engine = GameEngine(Board(9), Random(4))
+        engine.board.cells[40] = 3; engine.board.bombs[40] = true
+        engine.board.cells[48] = 3 // just outside the 3x3, inside bomb's own blast
+        val removed = engine.blastArea(4, 4)
+        assertTrue(40 in removed.toList())
+        assertEquals(0, engine.board.cells[48])
+    }
+
+    @Test
+    fun `serialization round-trips bombs and modifiers`() {
+        val engine = GameEngine(Board(9), Random(9))
+        engine.tray[0] = single(3); engine.tray[1] = null; engine.tray[2] = null
+        engine.trayBomb[0] = 0
+        engine.board.cells[5] = 2; engine.board.bombs[5] = true
+        engine.gemChance = 0.5f; engine.dailyModifier = 2
+        val back = GameEngine.fromJson(engine.toJson())!!
+        assertTrue(back.board.bombs[5])
+        assertEquals(0, back.trayBomb[0])
+        assertEquals(0.5f, back.gemChance)
+        assertEquals(2, back.dailyModifier)
+    }
+
+    @Test
+    fun `undo restores bombs`() {
+        val engine = GameEngine(Board(9), Random(5))
+        engine.tray[0] = single(); engine.tray[1] = null; engine.tray[2] = null
+        engine.trayBomb[0] = 0
+        engine.place(0, 4, 4)
+        assertTrue(engine.board.bombs[4 * 9 + 4])
+        engine.undo()
+        assertFalse(engine.board.bombs[4 * 9 + 4])
+        assertEquals(0, engine.trayBomb[0])
+    }
 }

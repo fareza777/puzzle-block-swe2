@@ -182,4 +182,35 @@ object D {
         txt.textSize = sizePx
         return txt.measureText(s)
     }
+
+    /** Shrinks sizePx until [s] fits within [maxW] (down to 55% of the original). */
+    fun fitSize(s: String, sizePx: Float, maxW: Float, bold: Boolean = true, spacing: Float = 0f): Float {
+        var sz = sizePx
+        while (sz > sizePx * 0.55f) {
+            txt.textSize = sz
+            txt.typeface = if (bold) boldFace else regFace
+            txt.letterSpacing = spacing
+            val w = txt.measureText(if (spacing > 0f) s.uppercase() else s)
+            if (w <= maxW) break
+            sz -= sizePx * 0.045f
+        }
+        txt.letterSpacing = 0f
+        return sz
+    }
+
+    /** Text that auto-shrinks to fit [maxW] — use wherever a translated label could overflow. */
+    fun textFit(
+        c: Canvas, s: String, x: Float, y: Float, sizePx: Float, maxW: Float, color: Int,
+        align: Paint.Align = Paint.Align.CENTER, bold: Boolean = true, alpha: Int = 255,
+    ) {
+        text(c, s, x, y, fitSize(s, sizePx, maxW, bold), color, align, bold, alpha)
+    }
+
+    /** Letter-spaced label text that auto-shrinks to fit [maxW]. */
+    fun labelTextFit(
+        c: Canvas, s: String, x: Float, y: Float, sizePx: Float, maxW: Float, color: Int,
+        align: Paint.Align = Paint.Align.CENTER, spacing: Float = 0.14f,
+    ) {
+        labelText(c, s, x, y, fitSize(s, sizePx, maxW, bold = true, spacing = spacing), color, align, spacing)
+    }
 }

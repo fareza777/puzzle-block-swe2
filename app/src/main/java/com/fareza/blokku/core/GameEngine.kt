@@ -26,6 +26,9 @@ class PlaceResult(
     val meterFull: Boolean = false,
     val gemsCollected: Int = 0,
     val perfectClear: Boolean = false,
+    /** Extra cells removed by bomb detonations (subset of clearCells' neighbors). */
+    val boomCells: IntArray = IntArray(0),
+    val bombsDetonated: Int = 0,
 )
 
 /**
@@ -42,6 +45,8 @@ class GameEngine(
     var colorCount: Int = 6,
     var timeLimitSec: Int = 0, // timed levels: >0 counts down in the UI layer
     var bigBias: Float = 0f,   // extra weight for chunky pieces (difficulty ramp)
+    var gemChance: Float = 0.2f, // daily modifier can boost this (Gem Rush)
+    var dailyModifier: Int = 0,  // 0 none · 1 blocked floor · 2 gem rush
 ) {
 
     val tray = arrayOfNulls<Piece>(3)
@@ -70,9 +75,13 @@ class GameEngine(
     var feverT = 0f
     /** Gem embedded in tray slot i — packed piece-local cell (r*16+c), -1 = none. */
     val trayGem = intArrayOf(-1, -1, -1)
+    /** Bomb embedded in tray slot i — packed piece-local cell (r*16+c), -1 = none. */
+    val trayBomb = intArrayOf(-1, -1, -1)
     /** Gems collected by the last destructive op (blast/revive), for coin award. */
     var lastGemsCollected = 0
         private set
+    /** Gems collected by bomb blasts in the current place() call. */
+    private var boomGems = 0
 
     private val undoStack = ArrayDeque<Snapshot>()
 
@@ -96,6 +105,8 @@ class GameEngine(
         val goalFailed: Boolean,
         val gems: BooleanArray,
         val trayGem: IntArray,
+        val bombs: BooleanArray,
+        val trayBomb: IntArray,
     )
 
     private fun snapshot(): Snapshot {
@@ -103,10 +114,12 @@ class GameEngine(
         board.cells.copyInto(c)
         val g = BooleanArray(board.gems.size)
         board.gems.copyInto(g)
+        val b = BooleanArray(board.bombs.size)
+        board.bombs.copyInto(b)
         return Snapshot(
             c, tray.copyOf(), score, combo, streak, bestCombo,
             linesCleared, cellsPlaced, meter, movesLeft, gameOver, goalMet, goalFailed,
-            g, trayGem.copyOf(),
+            g, trayGem.copyOf(), b, trayBomb.copyOf(),
         )
     }
 
@@ -118,6 +131,8 @@ class GameEngine(
         movesLeft = s.movesLeft; gameOver = s.gameOver; goalMet = s.goalMet; goalFailed = s.goalFailed
         s.gems.copyInto(board.gems)
         s.trayGem.copyInto(trayGem)
+        s.bombs.copyInto(board.bombs)
+        s.trayBomb.copyInto(trayBomb)
     }
 
     val canUndo get() = undoStack.isNotEmpty()
@@ -129,21 +144,29 @@ class GameEngine(
     }
 
     fun refillTray() {
-        for (i in 0..2) if (tray[i] == null) { tray[i] = nextPiece(); rollGem(i) }
+        for (i in 0..2) if (tray[i] == null) { tray[i] = nextPiece(); rollSpecial(i) }
         // fairness: if nothing fits, keep re-rolling (bounded) so death feels earned, not cheap
         var tries = 0
         while (!anyTrayFit() && tries < 30) {
             for (i in 0..2) if (tray[i] != null && !board.anyFit(tray[i]!!)) {
-                tray[i] = nextPiece(); rollGem(i)
+                tray[i] = nextPiece(); rollSpecial(i)
             }
             tries++
         }
     }
 
-    /** ~1-in-5 fresh pieces carry a gem cell worth coins when its line clears. */
-    private fun rollGem(i: Int) {
+    /** ~1-in-5 fresh pieces carry a gem cell worth coins when its line clears,
+     *  ~1-in-8 carry a bomb cell that detonates 3x3 when its line clears. */
+    private fun rollSpecial(i: Int) {
         val p = tray[i]
-        trayGem[i] = if (p != null && rng.nextFloat() < 0.2f) p.cells[rng.nextInt(p.cells.size)] else -1
+        trayGem[i] = if (p != null && rng.nextFloat() < gemChance) p.cells[rng.nextInt(p.cells.size)] else -1
+        trayBomb[i] = if (p != null && rng.nextFloat() < 0.13f) {
+            // prefer a different cell than the gem so the piece reads clearly
+            var pick = p.cells[rng.nextInt(p.cells.size)]
+            var tries = 0
+            while (pick == trayGem[i] && tries++ < 4) pick = p.cells[rng.nextInt(p.cells.size)]
+            pick
+        } else -1
     }
 
     private fun nextPiece(): Piece = Shapes.randomPiece(rng, colorCount, bigBias)
@@ -152,7 +175,7 @@ class GameEngine(
     fun ensureTrayFits() {
         var tries = 0
         while (!anyTrayFit() && tries < 30) {
-            for (i in 0..2) if (tray[i] != null && !board.anyFit(tray[i]!!)) { tray[i] = nextPiece(); rollGem(i) }
+            for (i in 0..2) if (tray[i] != null && !board.anyFit(tray[i]!!)) { tray[i] = nextPiece(); rollSpecial(i) }
             tries++
         }
     }
@@ -215,10 +238,13 @@ class GameEngine(
         if (undoStack.size > 20) undoStack.removeFirst()
 
         board.place(p, row, col)
-        // gem inside the piece lands on the board
+        // gem/bomb inside the piece land on the board
         val g = trayGem[i]
         if (g >= 0) board.gems[(row + (g shr 4)) * board.size + col + (g and 15)] = true
         trayGem[i] = -1
+        val bb = trayBomb[i]
+        if (bb >= 0) board.bombs[(row + (bb shr 4)) * board.size + col + (bb and 15)] = true
+        trayBomb[i] = -1
         tray[i] = null
         cellsPlaced += p.size
         if (movesLeft > 0) movesLeft--
@@ -229,20 +255,26 @@ class GameEngine(
         var meterFullNow = false
         var gems = 0
         var perfect = false
+        var boom = IntArray(0)
+        var bombsN = 0
         if (!res.isEmpty) {
             for (cc in res.clearCells) if (board.gems[cc]) gems++
+            // bombs caught in cleared lines detonate 3x3 and can chain
+            boomGems = 0
+            val det = detonate(res.clearCells)
+            boom = det.first; bombsN = det.second; gems += boomGems
             board.applyClear(res.clearCells)
             val n = res.lineCount
             linesCleared += n
             combo++
             streak++
             if (combo > bestCombo) bestCombo = combo
-            gained += res.clearCells.size * 10 + n * n * 40
+            gained += (res.clearCells.size + boom.size) * 10 + n * n * 40 + bombsN * 60
             gained = (gained * (1f + 0.5f * (combo - 1))).toInt()
             // PERFECT CLEAR — emptied the whole board
             if (board.filledCount() == 0) { perfect = true; gained += 400 + combo * 100 }
             if (feverT > 0f) gained *= 2
-            meter += n * 12 + (if (combo > 1) 8 * combo else 0)
+            meter += n * 12 + (if (combo > 1) 8 * combo else 0) + bombsN * 10
             if (meter >= 100) { meter -= 100; meterFullNow = true; feverT = 8f }
         } else {
             if (combo > 0) combo = 0
@@ -261,7 +293,7 @@ class GameEngine(
 
         if (trayEmpty()) refillTray()
         evaluateEnd()
-        return PlaceResult(true, res.clearCells, res.lineCount, gained, combo, meterFullNow, gems, perfect)
+        return PlaceResult(true, res.clearCells, res.lineCount, gained, combo, meterFullNow, gems, perfect, boom, bombsN)
     }
 
     private fun boardPostClears(): Board.ClearResult {
@@ -296,34 +328,84 @@ class GameEngine(
     /** Replace all unplaced tray pieces with fresh ones (shuffle power-up). */
     fun shuffleTray() {
         undoStack.addLast(snapshot())
-        for (i in 0..2) if (tray[i] != null) { tray[i] = nextPiece(); rollGem(i) }
+        for (i in 0..2) if (tray[i] != null) { tray[i] = nextPiece(); rollSpecial(i) }
         evaluateEnd()
+    }
+
+    /**
+     * Detonates every bomb cell in [seed] — each clears its 3x3 neighborhood
+     * (collecting gems) and chains into any bombs caught in the blast.
+     * Returns (extra cells removed, bombs detonated).
+     */
+    private fun detonate(seed: IntArray): Pair<IntArray, Int> {
+        val queue = ArrayDeque<Int>()
+        val seen = HashSet<Int>()
+        for (idx in seed) if (board.bombs[idx] && seen.add(idx)) queue.addLast(idx)
+        if (queue.isEmpty()) return IntArray(0) to 0
+        var detonated = 0
+        val removed = ArrayList<Int>()
+        val seedSet = seed.toHashSet()
+        while (queue.isNotEmpty()) {
+            val b = queue.removeFirst()
+            detonated++
+            val br = b / board.size; val bc = b % board.size
+            board.bombs[b] = false
+            for (dr in -1..1) for (dc in -1..1) {
+                val rr = br + dr; val cc = bc + dc
+                if (rr !in 0 until board.size || cc !in 0 until board.size) continue
+                val idx = rr * board.size + cc
+                if (board.bombs[idx] && seen.add(idx)) queue.addLast(idx)
+                if (board.cells[idx] != 0 && !seedSet.contains(idx)) {
+                    if (board.gems[idx]) boomGems++
+                    board.cells[idx] = 0
+                    board.gems[idx] = false
+                    board.bombs[idx] = false
+                    removed.add(idx)
+                }
+            }
+        }
+        return removed.toIntArray() to detonated
     }
 
     /** Clear a radius-1 (3x3) area centered at row/col (bomb power-up). */
     fun blastArea(row: Int, col: Int): IntArray {
         undoStack.addLast(snapshot())
-        lastGemsCollected = 0
+        lastGemsCollected = 0; boomGems = 0
+        // bombs inside the blast detonate first so they chain
+        val seeds = ArrayList<Int>()
         for (r in (row - 1)..(row + 1)) for (c in (col - 1)..(col + 1)) {
-            if (r in 0 until board.size && c in 0 until board.size && board.gems[r * board.size + c]) lastGemsCollected++
+            if (r in 0 until board.size && c in 0 until board.size) {
+                val idx = r * board.size + c
+                if (board.bombs[idx]) seeds.add(idx)
+                if (board.gems[idx]) lastGemsCollected++
+            }
         }
+        val boom = if (seeds.isNotEmpty()) detonate(seeds.toIntArray()).first else IntArray(0)
+        lastGemsCollected += boomGems
         val removed = board.clearArea(row, col, 1)
         if (trayEmpty()) refillTray()
         evaluateEnd()
-        return removed
+        return removed + boom
     }
 
     /** Continue after game over: clears the densest 3x3 region and resumes. */
     fun reviveClear(): IntArray {
         val best = densestArea()
-        lastGemsCollected = 0
+        lastGemsCollected = 0; boomGems = 0
+        val seeds = ArrayList<Int>()
         for (r in (best.first - 1)..(best.first + 1)) for (c in (best.second - 1)..(best.second + 1)) {
-            if (r in 0 until board.size && c in 0 until board.size && board.gems[r * board.size + c]) lastGemsCollected++
+            if (r in 0 until board.size && c in 0 until board.size) {
+                val idx = r * board.size + c
+                if (board.bombs[idx]) seeds.add(idx)
+                if (board.gems[idx]) lastGemsCollected++
+            }
         }
+        val boom = if (seeds.isNotEmpty()) detonate(seeds.toIntArray()).first else IntArray(0)
+        lastGemsCollected += boomGems
         val removed = board.clearArea(best.first, best.second, 1)
         gameOver = false
         evaluateEnd()
-        return removed
+        return removed + boom
     }
 
     private fun densestArea(): Pair<Int, Int> {
@@ -390,6 +472,12 @@ class GameEngine(
         for (i in board.gems.indices) { if (i > 0) sb.append(','); sb.append(if (board.gems[i]) 1 else 0) }
         sb.append(';')
         for (i in 0..2) { if (i > 0) sb.append(','); sb.append(trayGem[i]) }
+        sb.append(';')
+        for (i in board.bombs.indices) { if (i > 0) sb.append(','); sb.append(if (board.bombs[i]) 1 else 0) }
+        sb.append(';')
+        for (i in 0..2) { if (i > 0) sb.append(','); sb.append(trayBomb[i]) }
+        sb.append(';')
+        sb.append(gemChance).append(';').append(dailyModifier)
         return sb.toString()
     }
 
@@ -456,6 +544,18 @@ class GameEngine(
                     val tg = f[i].split(',')
                     for (k in 0..2) e.trayGem[k] = tg.getOrNull(k)?.toIntOrNull() ?: -1
                 }
+                i++
+                if (i < f.size) {
+                    val bc2 = f[i++].split(',')
+                    if (bc2.size == e.board.bombs.size) for (k in bc2.indices) e.board.bombs[k] = bc2[k] == "1"
+                }
+                if (i < f.size) {
+                    val tb = f[i].split(',')
+                    for (k in 0..2) e.trayBomb[k] = tb.getOrNull(k)?.toIntOrNull() ?: -1
+                }
+                i++
+                if (i < f.size) e.gemChance = f[i++].toFloatOrNull() ?: 0.2f
+                if (i < f.size) e.dailyModifier = f[i].toIntOrNull() ?: 0
                 e
             } catch (ex: Exception) { null }
         }

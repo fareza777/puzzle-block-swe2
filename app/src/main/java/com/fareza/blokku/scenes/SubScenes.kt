@@ -220,7 +220,7 @@ class MissionsScene : BaseScene() {
         val rw = D.textWidth(reward, D.sp(11f)) + D.dp(20f)
         D.rect(c, l + w - D.dp(10f) - rw, t + D.dp(10f), l + w - D.dp(10f), t + D.dp(30f), D.withAlpha(0xFFFFD166.toInt(), 40), D.dp(10f))
         D.text(c, reward, l + w - D.dp(10f) - rw / 2f, t + D.dp(24f), D.sp(11f), 0xFFFFD166.toInt())
-        D.text(c, title, l + D.dp(16f), t + D.dp(26f), D.sp(13.5f), D.color(theme.textPrimary), Paint.Align.LEFT, bold = false)
+        D.textFit(c, title, l + D.dp(16f), t + D.dp(26f), D.sp(13.5f), w - D.dp(16f) - rw - D.dp(20f), D.color(theme.textPrimary), Paint.Align.LEFT, bold = false)
         D.text(c, prog, l + D.dp(16f), t + D.dp(46f), D.sp(12f), D.withAlpha(D.color(theme.textPrimary), 170), Paint.Align.LEFT)
     }
 
@@ -251,13 +251,14 @@ class StatsScene : BaseScene() {
             s(R.string.stats_cells) to "${Save.totalCells}",
             s(R.string.stats_max_combo) to "×${Save.lifetimeBestCombo}",
             s(R.string.stats_dailies) to "${Save.dailiesDone}",
+            s(R.string.stats_shards) to "${Save.shards}/5",
             s(R.string.stats_play_time) to s(R.string.stats_minutes, Save.playSeconds / 60),
         )
         val cw = w - D.dp(48f)
         for ((label, value) in rows) {
             D.card(c, D.dp(24f), y, D.dp(24f) + cw, y + D.dp(54f), D.color(theme.boardBg), D.dp(15f))
-            D.text(c, label, D.dp(42f), y + D.dp(34f), D.sp(14f), D.withAlpha(D.color(theme.textPrimary), 200), Paint.Align.LEFT, bold = false)
-            D.text(c, value, D.dp(24f) + cw - D.dp(18f), y + D.dp(35f), D.sp(17f), D.color(theme.accent), Paint.Align.RIGHT)
+            D.textFit(c, label, D.dp(42f), y + D.dp(34f), D.sp(14f), cw - D.dp(140f), D.withAlpha(D.color(theme.textPrimary), 200), Paint.Align.LEFT, bold = false)
+            D.textFit(c, value, D.dp(24f) + cw - D.dp(18f), y + D.dp(35f), D.sp(17f), cw - D.dp(140f), D.color(theme.accent), Paint.Align.RIGHT)
             y += D.dp(64f)
         }
     }
@@ -341,19 +342,22 @@ class ThemesScene : BaseScene() {
                 bx += D.dp(17f)
             }
 
+            // text must stop before the action button (or card edge)
+            val btnLeft = D.dp(24f) + cw - if (inUse) D.dp(16f) else D.dp(88f) - D.dp(10f)
+            val nameW = D.fitSize(t.displayName, D.sp(16f), btnLeft - (pv.right + D.dp(14f)))
             if (onSale) {
                 val swl = D.textWidth(s(R.string.sale), D.sp(9f)) + D.dp(12f)
-                D.gradientRect(c, pv.right + D.dp(14f) + D.textWidth(t.displayName, D.sp(16f)) + D.dp(8f), y + D.dp(16f), pv.right + D.dp(14f) + D.textWidth(t.displayName, D.sp(16f)) + D.dp(8f) + swl, y + D.dp(32f), 0xFFFF5D73.toInt(), 0xFFE03A5C.toInt(), D.dp(8f))
-                D.text(c, s(R.string.sale), pv.right + D.dp(14f) + D.textWidth(t.displayName, D.sp(16f)) + D.dp(8f) + swl / 2f, y + D.dp(28f), D.sp(9f), Color.WHITE)
+                D.gradientRect(c, pv.right + D.dp(14f) + D.textWidth(t.displayName, nameW) + D.dp(8f), y + D.dp(16f), pv.right + D.dp(14f) + D.textWidth(t.displayName, nameW) + D.dp(8f) + swl, y + D.dp(32f), 0xFFFF5D73.toInt(), 0xFFE03A5C.toInt(), D.dp(8f))
+                D.text(c, s(R.string.sale), pv.right + D.dp(14f) + D.textWidth(t.displayName, nameW) + D.dp(8f) + swl / 2f, y + D.dp(28f), D.sp(9f), Color.WHITE)
             }
-            D.text(c, t.displayName, pv.right + D.dp(14f), y + D.dp(30f), D.sp(16f), D.color(theme.textPrimary), Paint.Align.LEFT)
+            D.text(c, t.displayName, pv.right + D.dp(14f), y + D.dp(30f), nameW, D.color(theme.textPrimary), Paint.Align.LEFT)
             val status = when {
                 inUse -> s(R.string.theme_using)
                 unlocked -> s(R.string.theme_unlocked)
                 onSale -> "${t.price} → $price ${s(R.string.coins)}"
                 else -> s(R.string.theme_locked, t.price)
             }
-            D.text(c, status, pv.right + D.dp(14f), y + D.dp(54f), D.sp(11f), D.withAlpha(D.color(theme.textPrimary), 180), Paint.Align.LEFT, bold = false)
+            D.textFit(c, status, pv.right + D.dp(14f), y + D.dp(54f), D.sp(11f), btnLeft - (pv.right + D.dp(14f)), D.withAlpha(D.color(theme.textPrimary), 180), Paint.Align.LEFT, bold = false)
 
             val btnR = RectF(D.dp(24f) + cw - D.dp(88f), y + cardH / 2 - D.dp(19f), D.dp(24f) + cw - D.dp(14f), y + cardH / 2 + D.dp(19f))
             if (!inUse) {
@@ -369,7 +373,7 @@ class ThemesScene : BaseScene() {
 
         // power-ups strip — five kinds including hint
         y += D.dp(10f)
-        D.text(c, "Power-ups", D.dp(24f), y, D.sp(15f), D.color(theme.textPrimary), Paint.Align.LEFT)
+        D.textFit(c, "Power-ups", D.dp(24f), y, D.sp(15f), cw, D.color(theme.textPrimary), Paint.Align.LEFT)
         y += D.dp(10f)
         val puW = (cw - D.dp(32f)) / 5f
         val puKinds = com.fareza.blokku.data.PowerKind.entries
@@ -549,7 +553,7 @@ class SettingsScene : BaseScene() {
             removeAdsBtn?.let { it.appear.t = it.appear.duration; it.render(c) }
         } else {
             val w = host.width.toFloat()
-            D.text(c, s(R.string.settings_remove_ads_done), w / 2f, (howtoBtn?.rect?.bottom ?: 0f) + D.dp(40f), D.sp(13f), 0xFF62D97B.toInt())
+            D.textFit(c, s(R.string.settings_remove_ads_done), w / 2f, (howtoBtn?.rect?.bottom ?: 0f) + D.dp(40f), D.sp(13f), w - D.dp(48f), 0xFF62D97B.toInt())
         }
     }
 

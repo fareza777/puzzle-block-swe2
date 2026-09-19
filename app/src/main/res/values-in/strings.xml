@@ -147,8 +147,14 @@
     <string name="power_hint_name">Petunjuk</string>
     <string name="power_hint_desc">Sorot posisi terbaik untuk balokmu.</string>
     <string name="powers_title">Power-up</string>
-    <string name="powers_hint">Isi meter untuk FEVER RUSH ×2\nhapus sel bermata permata untuk koin\nkosongkan papan untuk bonus PERFECT CLEAR</string>
+    <string name="powers_hint">Isi meter untuk FEVER RUSH ×2\nhapus sel bermata permata untuk koin\ngaris melewati blok bom = BOOM\nkosongkan papan untuk bonus PERFECT CLEAR</string>
     <string name="got_it">Mengerti</string>
     <string name="fever_banner">FEVER RUSH ×2</string>
     <string name="perfect_banner">PERFECT CLEAR</string>
+    <string name="boom_float">BOOM!</string>
+    <string name="daily_mod_floor">Lantai Terhalang</string>
+    <string name="daily_mod_gems">Demam Permata</string>
+    <string name="shard_label">pecahan</string>
+    <string name="shard_convert">%1$d pecahan → +%2$d koin!</string>
+    <string name="stats_shards">Pecahan bintang</string>
 </resources>

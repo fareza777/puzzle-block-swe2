@@ -68,9 +68,12 @@ class UiButton(
         D.p.shader = null
         D.rectStroke(c, rect.left + 0.8f, rect.top + 0.8f, rect.right - 0.8f, rect.bottom - 0.8f, D.withAlpha(Color.WHITE, 36), 1.3f, rr)
         val alpha = if (enabled) 255 else 110
-        val size = D.sp(17f) * textScale
+        var size = D.sp(17f) * textScale
         if (icon.isNotEmpty()) {
             val gap = D.dp(9f)
+            val avail = rect.width() - D.dp(22f)
+            val need = D.textWidth(label, size) + size + gap
+            if (need > avail) size = size * avail / need
             val tw = D.textWidth(label, size) + size + gap
             val startX = cx - tw / 2f
             val baseY = if (sublabel.isNotEmpty()) cy - D.dp(8f) else cy
@@ -86,14 +89,15 @@ class UiButton(
             }
             D.text(c, label, startX + size + gap + D.textWidth(label, size) / 2f, ty, size, fg, alpha = alpha)
             if (sublabel.isNotEmpty()) {
-                D.text(c, sublabel, cx, rect.bottom - D.dp(11f), D.sp(11f) * textScale, D.withAlpha(fg, 215), bold = false, alpha = alpha)
+                D.textFit(c, sublabel, cx, rect.bottom - D.dp(11f), D.sp(11f) * textScale, rect.width() - D.dp(20f), D.withAlpha(fg, 215), bold = false, alpha = alpha)
             }
         } else {
             if (sublabel.isNotEmpty()) {
-                D.textIn(c, label, RectF(rect.left, rect.top, rect.right, rect.centerY() + D.dp(4f)), size, fg)
-                D.textIn(c, sublabel, RectF(rect.left, rect.centerY() + D.dp(2f), rect.right, rect.bottom + D.dp(6f)), D.sp(11f) * textScale, D.withAlpha(fg, 210), bold = false)
+                val fs = D.fitSize(label, size, rect.width() - D.dp(20f))
+                D.textIn(c, label, RectF(rect.left, rect.top, rect.right, rect.centerY() + D.dp(4f)), fs, fg)
+                D.textIn(c, sublabel, RectF(rect.left, rect.centerY() + D.dp(2f), rect.right, rect.bottom + D.dp(6f)), D.fitSize(sublabel, D.sp(11f) * textScale, rect.width() - D.dp(20f), false), D.withAlpha(fg, 210), bold = false)
             } else {
-                D.textIn(c, label, rect, size, fg)
+                D.textIn(c, label, rect, D.fitSize(label, size, rect.width() - D.dp(20f)), fg)
             }
         }
         c.restore()
@@ -148,9 +152,9 @@ class UiToggle(
         val target = if (get()) 1f else 0f
         animPos += (target - animPos) * 0.25f
 
-        D.text(c, label, rect.left, rect.centerY() + D.sp(15f) * 0.36f, D.sp(15f), fg, android.graphics.Paint.Align.LEFT)
-
         val tw = D.dp(52f); val th = D.dp(30f)
+        D.textFit(c, label, rect.left, rect.centerY() + D.sp(15f) * 0.36f, D.sp(15f), rect.width() - tw - D.dp(12f), fg, android.graphics.Paint.Align.LEFT)
+
         val tr = RectF(rect.right - tw, rect.centerY() - th / 2, rect.right, rect.centerY() + th / 2)
         D.rect(c, tr.left, tr.top, tr.right, tr.bottom, D.withAlpha(Color.BLACK, 60), th / 2)
         val trackColor = lerpColor(D.withAlpha(accent, 70), accent, animPos)

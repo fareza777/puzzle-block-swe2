@@ -31,6 +31,8 @@ object Save {
 
     // ---- economy ----
     var coins get() = p.getInt("coins", 120); set(v) = p.edit().putInt("coins", v).apply()
+    /** Star shards: earned on big moments (fever/perfect/level win); every 5 → +200 coins. */
+    var shards get() = p.getInt("shards", 0); set(v) = p.edit().putInt("shards", v).apply()
     var adsRemoved get() = p.getBoolean("adsRemoved", false); set(v) = p.edit().putBoolean("adsRemoved", v).apply()
     var lastDailyReward get() = p.getString("lastDailyReward", "")!!; set(v) = p.edit().putString("lastDailyReward", v).apply()
 

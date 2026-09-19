@@ -157,8 +157,14 @@
     <string name="power_hint_name">Hint</string>
     <string name="power_hint_desc">Glows the best spot for your pieces.</string>
     <string name="powers_title">Power-ups</string>
-    <string name="powers_hint">Fill the meter for FEVER RUSH ×2\nclear cells holding a gem for coins\nempty the board for a PERFECT CLEAR bonus</string>
+    <string name="powers_hint">Fill the meter for FEVER RUSH ×2\nclear cells holding a gem for coins\na line through a bomb block = BOOM\nempty the board for a PERFECT CLEAR bonus</string>
     <string name="got_it">Got it</string>
     <string name="fever_banner">FEVER RUSH ×2</string>
     <string name="perfect_banner">PERFECT CLEAR</string>
+    <string name="boom_float">BOOM!</string>
+    <string name="daily_mod_floor">Blocked Floor</string>
+    <string name="daily_mod_gems">Gem Rush</string>
+    <string name="shard_label">shard</string>
+    <string name="shard_convert">%1$d shards → +%2$d coins!</string>
+    <string name="stats_shards">Star shards</string>
 </resources>

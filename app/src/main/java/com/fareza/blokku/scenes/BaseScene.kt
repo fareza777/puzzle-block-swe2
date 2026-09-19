@@ -98,9 +98,10 @@ abstract class BaseScene : Scene(), FrameActive {
     fun renderTopBar(c: Canvas, title: String) {
         val w = host.width.toFloat()
         val cy = host.safeTop + D.dp(20f)
-        D.text(c, title, w / 2f, cy + D.sp(9f), D.sp(20f), D.color(theme.textPrimary))
+        val ts = D.fitSize(title, D.sp(20f), w - D.dp(160f))
+        D.text(c, title, w / 2f, cy + D.sp(9f), ts, D.color(theme.textPrimary))
         // accent underline under title
-        val tw = D.textWidth(title, D.sp(20f))
+        val tw = D.textWidth(title, ts)
         D.rect(c, w / 2f - tw / 2f + D.dp(2f), cy + D.sp(16f), w / 2f + tw / 2f - D.dp(2f), cy + D.sp(16f) + D.dp(2.5f), D.withAlpha(D.color(theme.accent), 170), D.dp(1.5f))
         if (coinPill == null) coinPill = CoinPill(w - D.dp(108f), cy) { onCoinsTap() }
         coinPill?.render(c)

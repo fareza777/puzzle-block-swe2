@@ -67,8 +67,9 @@ class TutorialScene : BaseScene() {
         val h = host.height.toFloat()
 
         val title = s(R.string.menu_tutorial)
-        D.text(c, title, w / 2f, host.safeTop + D.dp(30f), D.sp(22f), D.color(theme.textPrimary))
-        val tw = D.textWidth(title, D.sp(22f))
+        val ts = D.fitSize(title, D.sp(22f), w - D.dp(96f))
+        D.text(c, title, w / 2f, host.safeTop + D.dp(30f), ts, D.color(theme.textPrimary))
+        val tw = D.textWidth(title, ts)
         D.rect(c, w / 2f - tw / 2f + D.dp(3f), host.safeTop + D.dp(30f) + D.sp(8f), w / 2f + tw / 2f - D.dp(3f), host.safeTop + D.dp(30f) + D.sp(8f) + D.dp(2.5f), D.color(theme.accent), D.dp(1.5f))
 
         // illustration area — elevated card
