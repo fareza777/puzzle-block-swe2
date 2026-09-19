@@ -68,6 +68,14 @@ class GameScene(
     private var dragVisX = 0f
     private var dragVisY = 0f
     private var dragScale = 0f
+    // return-flight animation when a drop is rejected
+    private var retPiece: Piece? = null
+    private var retX = 0f; private var retY = 0f
+    private var retX0 = 0f; private var retY0 = 0f
+    private var retX1 = 0f; private var retY1 = 0f
+    private var retT = 0f
+    private var lastSnapR = -2
+    private var lastSnapC = -2
     private var downX = 0f
     private var downY = 0f
     private var downTime = 0L
@@ -191,27 +199,36 @@ class GameScene(
         updateDragVisual(dt)
     }
 
-    /** Smooth-follow the lifted piece: docks onto the snapped cell when valid,
-     * floats above the finger otherwise. What you see is where it lands. */
+    /** Smooth-follow the lifted piece — it floats above the finger keeping the
+     * grab point; the board ghost shows exactly where it will land. */
     private fun updateDragVisual(dt: Float) {
-        if (dragIndex < 0) return
-        val p = engine.tray[dragIndex] ?: return
-        dragScale = (dragScale + dt * 7f).coerceAtMost(1f)
-        val cur = trayCell + (cell - trayCell) * Ease.outCubic(dragScale)
-        val pw = p.cols * cur
-        val ph = p.rows * cur
-        val docked = snapFits && snapRow >= 0 && snapCol >= 0
-        val tx = if (docked) boardRect.left + snapCol * cell else dragX - pw * grabFracX
-        val ty = if (docked) boardRect.top + snapRow * cell else dragY - dragOffY - ph / 2f
-        val k = min(1f, dt * 22f)
-        dragVisX += (tx - dragVisX) * k
-        dragVisY += (ty - dragVisY) * k
+        val p = engine.tray.getOrNull(dragIndex)
+        if (dragIndex >= 0 && p != null) {
+            dragScale = (dragScale + dt * 8f).coerceAtMost(1f)
+            val cur = trayCell + (cell - trayCell) * Ease.outCubic(dragScale)
+            val pw = p.cols * cur
+            val ph = p.rows * cur
+            val tx = dragX - pw * grabFracX
+            // keep the piece's bottom edge just above the fingertip
+            val ty = dragY - dragOffY - ph / 2f
+            val k = min(1f, dt * 30f)
+            dragVisX += (tx - dragVisX) * k
+            dragVisY += (ty - dragVisY) * k
+        }
+        // rejected drop flies back to its tray slot
+        if (retPiece != null) {
+            retT += dt / 0.16f
+            val e = Ease.outCubic(retT.coerceIn(0f, 1f))
+            retX = retX0 + (retX1 - retX0) * e
+            retY = retY0 + (retY1 - retY0) * e
+            if (retT >= 1f) retPiece = null
+        }
     }
 
     override fun wantsFrame(): Boolean =
         super.wantsFrame() || clearing.isNotEmpty() || cellAnim.isNotEmpty() ||
             comboBannerT > 0 || meterFlash > 0 || boardShake > 0 ||
-            dragIndex >= 0 || gameOverDelay > 0 || overlayAnim.let { !it.done && overlay != Overlay.NONE } ||
+            dragIndex >= 0 || retPiece != null || gameOverDelay > 0 || overlayAnim.let { !it.done && overlay != Overlay.NONE } ||
             enterAnim.t < enterAnim.duration || trayPop.any { it < 1f } ||
             (overlay == Overlay.LEVEL_COMPLETE && starAnimT < 2f)
 
@@ -271,13 +288,25 @@ class GameScene(
                 if (overlay != Overlay.NONE) { dragIndex = -1; return true }
                 if (dragIndex >= 0) {
                     val i = dragIndex
+                    val piece = engine.tray[i]
                     dragIndex = -1
-                    if (snapFits && snapRow >= 0) {
+                    if (snapFits && snapRow >= 0 && snapCol >= 0) {
                         doPlace(i, snapRow, snapCol)
                     } else {
                         Audio.play("invalid")
                         boardShake = 0.25f
                         Haptic.error()
+                        // fly the piece back to its tray slot instead of vanishing
+                        if (piece != null) {
+                            retPiece = piece
+                            retX0 = dragVisX; retY0 = dragVisY
+                            retX = retX0; retY = retY0
+                            val slotCx = (host.width / 3f) * i + host.width / 6f
+                            retX1 = slotCx - piece.cols * trayCell / 2f
+                            retY1 = trayY + (host.height - trayY - D.dp(10f)) / 2f - piece.rows * trayCell / 2f
+                            retT = 0f
+                            host.wake()
+                        }
                     }
                 }
             }
@@ -307,10 +336,16 @@ class GameScene(
         if (!snapFits) {
             for (dr in -1..1) for (dc in -1..1) {
                 if (engine.board.fits(p, snapRow + dr, snapCol + dc)) {
-                    snapRow += dr; snapCol += dc; snapFits = true; return
+                    snapRow += dr; snapCol += dc; snapFits = true; break
                 }
             }
         }
+        // light tick whenever the landing cell changes — feels tactile
+        if (snapFits && (snapRow != lastSnapR || snapCol != lastSnapC)) {
+            if (lastSnapR != -2) Haptic.tick()
+            lastSnapR = snapRow; lastSnapC = snapCol
+        }
+        if (!snapFits) { lastSnapR = -2; lastSnapC = -2 }
     }
 
     private fun doPlace(i: Int, r: Int, cIdx: Int) {
@@ -544,6 +579,7 @@ class GameScene(
         renderBoard(c)
         renderPowerBar(c)
         renderTray(c)
+        renderReturn(c)
         renderDrag(c)
         c.restore()
         renderFx(c)
@@ -636,12 +672,14 @@ class GameScene(
                 val t = boardRect.top + cr * cell + cell * 0.05f
                 D.rect(c, l, t, l + cell * 0.9f, t + cell * 0.9f, D.withAlpha(D.color(theme.accent), 110), cell * 0.18f)
             }
-            // ghost cells
+            // ghost cells — bold enough to read the exact landing spot
             for (pc in dragPiece.cells) {
                 val gr = snapRow + (pc shr 4); val gc = snapCol + (pc and 15)
+                if (gr < 0 || gr > 8 || gc < 0 || gc > 8) continue
                 val l = boardRect.left + gc * cell + cell * 0.07f
                 val t = boardRect.top + gr * cell + cell * 0.07f
-                D.blockCell(c, l, t, l + cell * 0.86f, t + cell * 0.86f, cellColor(dragPiece.colorIndex + 1), cell * 0.2f, alpha = 150)
+                D.blockCell(c, l, t, l + cell * 0.86f, t + cell * 0.86f, cellColor(dragPiece.colorIndex + 1), cell * 0.2f, alpha = 200)
+                D.rectStroke(c, l + 1f, t + 1f, l + cell * 0.86f - 1f, t + cell * 0.86f - 1f, D.withAlpha(Color.WHITE, 120), 1.4f, cell * 0.2f)
             }
         }
 
@@ -786,6 +824,19 @@ class GameScene(
             val l = l0 + pcx * cur + cur * 0.05f
             val t = t0 + pr * cur + cur * 0.05f
             D.blockCell(c, l, t, l + cur * 0.9f, t + cur * 0.9f, cellColor(p.colorIndex + 1), cur * 0.2f)
+        }
+    }
+
+    /** Piece flying back to its slot after an invalid drop. */
+    private fun renderReturn(c: Canvas) {
+        val p = retPiece ?: return
+        val k = retT.coerceIn(0f, 1f)
+        val cur = cell + (trayCell - cell) * Ease.outCubic(k)
+        for (pc in p.cells) {
+            val pr = pc shr 4; val pcx = pc and 15
+            val l = retX + pcx * cur + cur * 0.05f
+            val t = retY + pr * cur + cur * 0.05f
+            D.blockCell(c, l, t, l + cur * 0.9f, t + cur * 0.9f, cellColor(p.colorIndex + 1), cur * 0.2f, alpha = (230 * (1f - k * 0.3f)).toInt())
         }
     }
 

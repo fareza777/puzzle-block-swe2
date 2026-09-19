@@ -13,7 +13,7 @@ import com.fareza.blokku.audio.Audio
 import com.fareza.blokku.audio.Haptic
 import com.fareza.blokku.data.Save
 import com.fareza.blokku.render.GameView
-import com.fareza.blokku.scenes.MenuScene
+import com.fareza.blokku.scenes.SplashScene
 import java.util.Locale
 
 class MainActivity : Activity() {
@@ -33,7 +33,7 @@ class MainActivity : Activity() {
 
         gameView = GameView(this)
         setContentView(gameView)
-        gameView.scenes.replace(MenuScene())
+        gameView.scenes.replace(SplashScene())
         hideSystemUi()
     }
 
