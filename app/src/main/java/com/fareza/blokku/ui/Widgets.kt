@@ -21,6 +21,7 @@ class UiButton(
     var enabled: Boolean = true,
     var sublabel: String = "",
     var inScroll: Boolean = false, // rendered inside a scrolled clip — hit-test needs offset
+    var bgEnd: Int = 0, // when non-zero, gradient runs bgEnd (top) → bg (bottom) verbatim
 ) {
     var pressT = 0f
     var appear = Anim(0.35f, Ease.outBack)
@@ -47,25 +48,42 @@ class UiButton(
         val cx = rect.centerX()
         val cy = rect.centerY()
         val scale = a * (1f - 0.12f * pressT)
-        val rr = if (radius >= 0) radius else D.dp(16f)
+        val rr = if (radius >= 0) radius else D.dp(18f)
         c.save()
         c.scale(scale, scale, cx, cy)
-        // shadow
-        D.rect(c, rect.left, rect.top + D.dp(3f), rect.right, rect.bottom + D.dp(4f), D.withAlpha(Color.BLACK, 60), rr)
-        D.gradientRect(c, rect.left, rect.top, rect.right, rect.bottom, D.lighten(bg, 0.10f), D.darken(bg, 0.06f), rr)
+        val pressed = pressT > 0.01f
+        // deeper layered shadow, sinks when pressed
+        val shadowDy = if (pressed) D.dp(1.5f) else D.dp(4f)
+        D.rect(c, rect.left, rect.top + shadowDy, rect.right, rect.bottom + shadowDy + D.dp(1f), D.withAlpha(Color.BLACK, 88), rr)
+        if (bgEnd != 0) D.gradientRect(c, rect.left, rect.top, rect.right, rect.bottom, bgEnd, bg, rr)
+        else D.gradientRect(c, rect.left, rect.top, rect.right, rect.bottom, D.lighten(bg, 0.26f), D.darken(bg, 0.05f), rr)
+        // glass sheen on upper half
+        D.p.alpha = 255
+        D.p.shader = android.graphics.LinearGradient(
+            rect.left, rect.top, rect.left, rect.top + rect.height() * 0.55f,
+            D.withAlpha(Color.WHITE, 40), D.withAlpha(Color.WHITE, 0), android.graphics.Shader.TileMode.CLAMP,
+        )
+        D.tmpRect.set(rect.left + 1.5f, rect.top + 1.5f, rect.right - 1.5f, rect.top + rect.height() * 0.55f)
+        c.drawRoundRect(D.tmpRect, rr - 1.5f, rr - 1.5f, D.p)
+        D.p.shader = null
+        D.rectStroke(c, rect.left + 0.8f, rect.top + 0.8f, rect.right - 0.8f, rect.bottom - 0.8f, D.withAlpha(Color.WHITE, 36), 1.3f, rr)
         val alpha = if (enabled) 255 else 110
         val size = D.sp(17f) * textScale
         if (icon.isNotEmpty()) {
-            val gap = D.dp(8f)
-            val tw = D.textWidth(label, size) + if (icon.isNotEmpty()) size + gap else 0f
+            val gap = D.dp(9f)
+            val tw = D.textWidth(label, size) + size + gap
             val startX = cx - tw / 2f
             val ty = cy - (D.txt.fontMetrics.run { ascent + descent } / 2f)
-            D.text(c, icon, startX + size / 2f, ty, size, fg, alpha = alpha)
+            // icon in a tinted chip
+            val chipR = size * 0.78f
+            D.circle(c, startX + size / 2f, cy, chipR, D.withAlpha(fg, if (fg == Color.WHITE) 45 else 60))
+            D.rectStroke(c, startX + size / 2f - chipR, cy - chipR, startX + size / 2f + chipR, cy + chipR, D.withAlpha(fg, 70), 1.2f, chipR)
+            D.text(c, icon, startX + size / 2f, ty, size * 0.92f, fg, alpha = alpha)
             D.text(c, label, startX + size + gap + D.textWidth(label, size) / 2f, ty, size, fg, alpha = alpha)
         } else {
             if (sublabel.isNotEmpty()) {
                 D.textIn(c, label, RectF(rect.left, rect.top, rect.right, rect.centerY() + D.dp(4f)), size, fg)
-                D.textIn(c, sublabel, RectF(rect.left, rect.centerY() + D.dp(2f), rect.right, rect.bottom + D.dp(6f)), D.sp(11f) * textScale, D.withAlpha(fg, 200), bold = false)
+                D.textIn(c, sublabel, RectF(rect.left, rect.centerY() + D.dp(2f), rect.right, rect.bottom + D.dp(6f)), D.sp(11f) * textScale, D.withAlpha(fg, 210), bold = false)
             } else {
                 D.textIn(c, label, rect, size, fg)
             }
@@ -152,16 +170,20 @@ class CoinPill(val x: Float, val y: Float, var onTap: () -> Unit = {}) {
         bounce = (bounce - 0.06f).coerceAtLeast(0f)
         pulse += 0.03f
         val s = 1f + 0.15f * bounce
-        val w = D.dp(96f) * s
-        val h = D.dp(34f) * s
+        val w = D.dp(98f) * s
+        val h = D.dp(36f) * s
         rect.set(x, y - h / 2, x + w, y + h / 2)
-        D.rect(c, rect.left, rect.top, rect.right, rect.bottom, D.withAlpha(Color.BLACK, 70), h / 2)
+        D.gradientRect(c, rect.left, rect.top, rect.right, rect.bottom, D.withAlpha(Color.BLACK, 140), D.withAlpha(Color.BLACK, 90), h / 2)
+        D.rectStroke(c, rect.left + 0.6f, rect.top + 0.6f, rect.right - 0.6f, rect.bottom - 0.6f, D.withAlpha(Color.WHITE, 40), 1.2f, h / 2)
         // coin icon
         val coinX = rect.left + h * 0.55f
+        D.circle(c, coinX, y + h * 0.06f, h * 0.34f, D.withAlpha(Color.BLACK, 60))
         D.circle(c, coinX, y, h * 0.32f, 0xFFFFD166.toInt())
         D.circle(c, coinX, y, h * 0.22f, 0xFFFFE8A0.toInt())
+        D.rectStroke(c, coinX - h * 0.24f, y - h * 0.24f, coinX + h * 0.24f, y + h * 0.24f, D.withAlpha(0xFF40260A.toInt(), 120), 1.4f, h * 0.24f)
         D.text(c, "${Save.coins}", coinX + h * 0.42f, y + D.sp(13f) * 0.36f, D.sp(13f), Color.WHITE, android.graphics.Paint.Align.LEFT)
-        D.text(c, "+", rect.right - h * 0.35f, y + D.sp(15f) * 0.36f, D.sp(15f), 0xFF7BE495.toInt())
+        D.circle(c, rect.right - h * 0.38f, y, h * 0.22f, D.withAlpha(0xFF7BE495.toInt(), 60))
+        D.text(c, "+", rect.right - h * 0.38f, y + D.sp(13f) * 0.36f, D.sp(13f), 0xFF7BE495.toInt())
     }
 }
 

@@ -65,19 +65,26 @@ class LevelSelectScene : BaseScene() {
             val r = RectF(l, t, l + cellW, t + cellW)
             cellRects.add(r to i)
 
-            val bg = when {
-                stars > 0 -> D.color(theme.accent)
-                open -> D.color(theme.gridLine)
-                else -> D.withAlpha(D.color(theme.boardBg), 160)
+            val isNext = i == unlocked && open
+            when {
+                stars > 0 -> {
+                    D.rect(c, r.left, r.top + D.dp(3f), r.right, r.bottom + D.dp(3f), D.withAlpha(Color.BLACK, 70), D.dp(14f))
+                    D.gradientRect(c, r.left, r.top, r.right, r.bottom, D.lighten(D.color(theme.accent), 0.14f), D.darken(D.color(theme.accent), 0.10f), D.dp(14f))
+                }
+                open -> {
+                    D.card(c, r.left, r.top, r.right, r.bottom, D.color(theme.boardBg), D.dp(14f))
+                    if (isNext) D.rectStroke(c, r.left + 0.8f, r.top + 0.8f, r.right - 0.8f, r.bottom - 0.8f, D.color(theme.accent), 1.8f, D.dp(14f))
+                }
+                else -> {
+                    D.insetCell(c, r.left, r.top, r.right, r.bottom, D.withAlpha(D.color(theme.boardBg), 200), D.dp(14f))
+                }
             }
-            D.rect(c, r.left, r.top, r.right, r.bottom, D.withAlpha(Color.BLACK, 50), D.dp(12f))
-            D.rect(c, r.left, r.top, r.right, r.bottom - D.dp(3f), bg, D.dp(12f))
-            val fg = if (open) D.color(theme.textPrimary) else D.withAlpha(D.color(theme.textPrimary), 90)
-            D.textIn(c, if (open) "${i + 1}" else "🔒", r, D.sp(16f), fg)
+            val fg = if (open) D.color(theme.textPrimary) else D.withAlpha(D.color(theme.textPrimary), 130)
+            D.textIn(c, if (open) "${i + 1}" else "🔒", r, if (open) D.sp(17f) else D.sp(14f), fg)
             if (stars > 0) {
                 var sx = r.centerX() - (stars - 1) * D.dp(7f)
                 for (k in 0 until stars) {
-                    D.text(c, "★", sx, r.bottom - D.dp(6f), D.sp(10f), 0xFF40260A.toInt())
+                    D.text(c, "★", sx, r.bottom - D.dp(5f), D.sp(10f), Color.WHITE)
                     sx += D.dp(14f)
                 }
             }
@@ -140,15 +147,17 @@ class MissionsScene : BaseScene() {
         val top = host.safeTop + D.dp(64f)
         buttons.clear()
 
-        // tabs
+        // tabs — segmented control on a track
         val tw = (w - D.dp(48f)) / 2f
-        tabRects[0].set(D.dp(24f), top, D.dp(24f) + tw, top + D.dp(40f))
-        tabRects[1].set(D.dp(24f) + tw, top, w - D.dp(24f), top + D.dp(40f))
+        tabRects[0].set(D.dp(24f), top, D.dp(24f) + tw, top + D.dp(42f))
+        tabRects[1].set(D.dp(24f) + tw, top, w - D.dp(24f), top + D.dp(42f))
+        D.rect(c, D.dp(24f), top, w - D.dp(24f), top + D.dp(42f), D.withAlpha(Color.BLACK, 80), D.dp(14f))
+        val sr = tabRects[tab]
+        D.gradientRect(c, sr.left + 3, top + 3, sr.right - 3, top + D.dp(39f), D.lighten(D.color(theme.accent), 0.12f), D.darken(D.color(theme.accent), 0.08f), D.dp(11f))
         for (i in 0..1) {
             val r = tabRects[i]
             val sel = tab == i
-            D.rect(c, r.left, r.top, r.right, r.bottom, if (sel) D.color(theme.accent) else D.withAlpha(Color.BLACK, 60), D.dp(12f))
-            D.textIn(c, if (i == 0) s(R.string.missions_daily) else s(R.string.missions_achievements), r, D.sp(13f), if (sel) Color.WHITE else D.withAlpha(D.color(theme.textPrimary), 180))
+            D.textIn(c, if (i == 0) s(R.string.missions_daily) else s(R.string.missions_achievements), r, D.sp(13f), if (sel) Color.WHITE else D.withAlpha(D.color(theme.textPrimary), 170))
         }
 
         var y = top + D.dp(56f)
@@ -174,9 +183,12 @@ class MissionsScene : BaseScene() {
                     D.text(c, s(R.string.claimed), D.dp(24f) + cw - D.dp(14f), y + cardH / 2 + D.sp(11f) * 0.35f, D.sp(11f), 0xFF62D97B.toInt(), Paint.Align.RIGHT)
                 } else {
                     // progress bar
-                    val pr = RectF(D.dp(38f), y + cardH - D.dp(16f), D.dp(24f) + cw - D.dp(24f), y + cardH - D.dp(10f))
-                    D.rect(c, pr.left, pr.top, pr.right, pr.bottom, D.withAlpha(Color.BLACK, 70), pr.height() / 2)
-                    if (prog > 0) D.rect(c, pr.left, pr.top, pr.left + pr.width() * prog / m.target, pr.bottom, D.color(theme.accent), pr.height() / 2)
+                    val pr = RectF(D.dp(38f), y + cardH - D.dp(17f), D.dp(24f) + cw - D.dp(24f), y + cardH - D.dp(9f))
+                    D.rect(c, pr.left, pr.top, pr.right, pr.bottom, D.withAlpha(Color.BLACK, 90), pr.height() / 2)
+                    if (prog > 0) {
+                        val fr = min(pr.right, pr.left + pr.width() * prog / m.target)
+                        D.gradientRect(c, pr.left, pr.top, fr, pr.bottom, D.lighten(D.color(theme.accent), 0.15f), D.darken(D.color(theme.accent), 0.12f), pr.height() / 2)
+                    }
                 }
                 y += cardH + D.dp(12f)
             }
@@ -195,11 +207,13 @@ class MissionsScene : BaseScene() {
     }
 
     private fun drawCard(c: Canvas, l: Float, t: Float, w: Float, h: Float, title: String, prog: String, reward: String) {
-        D.rect(c, l, t + D.dp(3f), l + w, t + h + D.dp(2f), D.withAlpha(Color.BLACK, 50), D.dp(14f))
-        D.rect(c, l, t, l + w, t + h, D.color(theme.boardBg), D.dp(14f))
-        D.text(c, title, l + D.dp(16f), t + D.dp(24f), D.sp(13f), D.color(theme.textPrimary), Paint.Align.LEFT, bold = false)
-        D.text(c, prog, l + D.dp(16f), t + D.dp(44f), D.sp(12f), D.withAlpha(D.color(theme.textPrimary), 170), Paint.Align.LEFT)
-        D.text(c, reward, l + w - D.dp(14f), t + D.dp(20f), D.sp(12f), 0xFFFFD166.toInt(), Paint.Align.RIGHT)
+        D.card(c, l, t, l + w, t + h, D.color(theme.boardBg), D.dp(16f))
+        // coin chip
+        val rw = D.textWidth(reward, D.sp(11f)) + D.dp(20f)
+        D.rect(c, l + w - D.dp(10f) - rw, t + D.dp(10f), l + w - D.dp(10f), t + D.dp(30f), D.withAlpha(0xFFFFD166.toInt(), 40), D.dp(10f))
+        D.text(c, reward, l + w - D.dp(10f) - rw / 2f, t + D.dp(24f), D.sp(11f), 0xFFFFD166.toInt())
+        D.text(c, title, l + D.dp(16f), t + D.dp(26f), D.sp(13.5f), D.color(theme.textPrimary), Paint.Align.LEFT, bold = false)
+        D.text(c, prog, l + D.dp(16f), t + D.dp(46f), D.sp(12f), D.withAlpha(D.color(theme.textPrimary), 170), Paint.Align.LEFT)
     }
 
     override fun onTouch(e: MotionEvent): Boolean {
@@ -233,10 +247,10 @@ class StatsScene : BaseScene() {
         )
         val cw = w - D.dp(48f)
         for ((label, value) in rows) {
-            D.rect(c, D.dp(24f), y, D.dp(24f) + cw, y + D.dp(52f), D.color(theme.boardBg), D.dp(14f))
-            D.text(c, label, D.dp(40f), y + D.dp(32f), D.sp(14f), D.withAlpha(D.color(theme.textPrimary), 200), Paint.Align.LEFT, bold = false)
-            D.text(c, value, D.dp(24f) + cw - D.dp(16f), y + D.dp(32f), D.sp(15f), D.color(theme.textPrimary), Paint.Align.RIGHT)
-            y += D.dp(62f)
+            D.card(c, D.dp(24f), y, D.dp(24f) + cw, y + D.dp(54f), D.color(theme.boardBg), D.dp(15f))
+            D.text(c, label, D.dp(42f), y + D.dp(34f), D.sp(14f), D.withAlpha(D.color(theme.textPrimary), 200), Paint.Align.LEFT, bold = false)
+            D.text(c, value, D.dp(24f) + cw - D.dp(18f), y + D.dp(35f), D.sp(17f), D.color(theme.accent), Paint.Align.RIGHT)
+            y += D.dp(64f)
         }
     }
 
@@ -278,14 +292,15 @@ class ThemesScene : BaseScene() {
         cardRects.clear()
 
         c.save()
-        c.clipRect(0f, y - D.dp(8f), w, host.height.toFloat() - D.dp(8f))
+        c.clipRect(0f, y - D.dp(8f), w, host.height.toFloat() - D.dp(76f))
         c.translate(0f, scrollY)
 
         for (t in Themes.ALL) {
             val unlocked = Save.themeUnlocked(t.id)
             val inUse = Save.selectedTheme == t.id
-            D.rect(c, D.dp(24f), y + D.dp(4f), D.dp(24f) + cw, y + cardH + D.dp(3f), D.withAlpha(Color.BLACK, 55), D.dp(18f))
+            D.rect(c, D.dp(24f), y + D.dp(5f), D.dp(24f) + cw, y + cardH + D.dp(5f), D.withAlpha(Color.BLACK, 70), D.dp(18f))
             D.gradientRect(c, D.dp(24f), y, D.dp(24f) + cw, y + cardH, D.color(t.bgTop), D.color(t.bgBottom), D.dp(18f))
+            D.rectStroke(c, D.dp(24f) + 0.8f, y + 0.8f, D.dp(24f) + cw - 0.8f, y + cardH - 0.8f, D.withAlpha(Color.WHITE, 26), 1.3f, D.dp(18f))
             if (inUse) D.rectStroke(c, D.dp(24f), y, D.dp(24f) + cw, y + cardH, D.color(theme.accent), D.dp(2.5f), D.dp(18f))
 
             // preview: mini board + block samples
@@ -336,9 +351,9 @@ class ThemesScene : BaseScene() {
         for (i in 0..3) {
             val l = D.dp(24f) + i * (puW + D.dp(8f))
             val r = RectF(l, y, l + puW, y + D.dp(78f))
-            D.rect(c, r.left, r.top + D.dp(3f), r.right, r.bottom + D.dp(2f), D.withAlpha(Color.BLACK, 50), D.dp(14f))
-            D.rect(c, r.left, r.top, r.right, r.bottom, D.color(theme.boardBg), D.dp(14f))
-            com.fareza.blokku.ui.Glyph.draw(c, puGlyphs[i], RectF(r.left + D.dp(10f), r.top + D.dp(8f), r.right - D.dp(10f), r.top + D.dp(38f)), D.color(theme.textPrimary))
+            D.card(c, r.left, r.top, r.right, r.bottom, D.color(theme.boardBg), D.dp(15f))
+            val pTint = intArrayOf(0xFF64B5F6.toInt(), 0xFF7BE495.toInt(), 0xFFFF8A65.toInt(), 0xFFBA8DF5.toInt())[i]
+            com.fareza.blokku.ui.Glyph.draw(c, puGlyphs[i], RectF(r.left + D.dp(10f), r.top + D.dp(8f), r.right - D.dp(10f), r.top + D.dp(38f)), pTint)
             val price = puPrices[i]
             val have = Save.powerUps(puKinds[i])
             val buyBtn = UiButton(RectF(r.left + D.dp(8f), r.bottom - D.dp(30f), r.right - D.dp(8f), r.bottom - D.dp(6f)), "+1 • $price", bg = 0xFFFFB84D.toInt(), fg = 0xFF40260A.toInt(), textScale = 0.65f, onTap = {
@@ -361,7 +376,7 @@ class ThemesScene : BaseScene() {
 
         // scroll-area buttons render inside the translated clip
         for (b in buttons) if (b.inScroll) { b.appear.t = b.appear.duration; b.render(c) }
-        maxScroll = min(0f, host.height.toFloat() - D.dp(16f) - y - scrollY + D.dp(0f))
+        maxScroll = min(0f, host.height.toFloat() - D.dp(92f) - y)
         c.restore()
 
         // free coins button
@@ -485,6 +500,11 @@ class SettingsScene : BaseScene() {
     override fun render(c: Canvas) {
         renderBackground(c)
         renderTopBar(c, s(R.string.menu_settings))
+        // grouped card behind the four toggles
+        if (toggles.isNotEmpty()) {
+            val gl = D.dp(24f); val gr = host.width.toFloat() - D.dp(24f)
+            D.card(c, gl, toggles[0].rect.top - D.dp(10f), gr, toggles.last().rect.bottom + D.dp(8f), D.color(theme.boardBg), D.dp(18f))
+        }
         for (t in toggles) t.render(c)
         langBtn?.let { it.appear.t = it.appear.duration; it.render(c) }
         if (!Save.adsRemoved) {

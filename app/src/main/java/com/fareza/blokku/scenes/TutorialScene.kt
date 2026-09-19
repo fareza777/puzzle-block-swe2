@@ -44,7 +44,7 @@ class TutorialScene : BaseScene() {
             })
         skipBtn = UiButton(
             RectF(w - D.dp(120f), host.safeTop, w - D.dp(24f), host.safeTop + D.dp(40f)),
-            s(R.string.tut_skip), bg = D.withAlpha(Color.WHITE, 30), fg = D.color(theme.textPrimary), onTap = { close() }, textScale = 0.8f)
+            s(R.string.tut_skip), bg = D.lighten(D.color(theme.boardBg), 0.12f), fg = D.color(theme.textPrimary), onTap = { close() }, textScale = 0.8f)
     }
 
     private fun close() {
@@ -66,11 +66,14 @@ class TutorialScene : BaseScene() {
         val w = host.width.toFloat()
         val h = host.height.toFloat()
 
-        D.text(c, s(R.string.menu_tutorial), w / 2f, host.safeTop + D.dp(30f), D.sp(22f), D.color(theme.textPrimary))
+        val title = s(R.string.menu_tutorial)
+        D.text(c, title, w / 2f, host.safeTop + D.dp(30f), D.sp(22f), D.color(theme.textPrimary))
+        val tw = D.textWidth(title, D.sp(22f))
+        D.rect(c, w / 2f - tw / 2f + D.dp(3f), host.safeTop + D.dp(30f) + D.sp(8f), w / 2f + tw / 2f - D.dp(3f), host.safeTop + D.dp(30f) + D.sp(8f) + D.dp(2.5f), D.color(theme.accent), D.dp(1.5f))
 
-        // illustration area
-        val ill = RectF(D.dp(40f), host.safeTop + D.dp(70f), w - D.dp(40f), h - D.dp(190f))
-        D.rect(c, ill.left, ill.top, ill.right, ill.bottom, D.color(theme.boardBg), D.dp(20f))
+        // illustration area — elevated card
+        val ill = RectF(D.dp(36f), host.safeTop + D.dp(70f), w - D.dp(36f), h - D.dp(190f))
+        D.card(c, ill.left, ill.top, ill.right, ill.bottom, D.color(theme.boardBg), D.dp(22f))
         c.save()
         c.clipRect(ill)
         when (page) {

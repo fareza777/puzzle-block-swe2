@@ -23,7 +23,7 @@ object Themes {
     val ALL: List<GameTheme> = listOf(
         GameTheme(
             "sunrise", "Sunrise", 0,
-            0xFF2B1B4A, 0xFF0E1024, 0xFF1B1740, 0xFF28245A, 0xFF3A3580,
+            0xFF2B1B4A, 0xFF0E1024, 0xFF1B1740, 0xFF2F2A68, 0xFF3A3580,
             0xFFFFB84D, 0xFFF4F1FF,
             longArrayOf(
                 0xFFFF5D73, 0xFFFFA53D, 0xFFFFD84D, 0xFF62D97B,

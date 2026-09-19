@@ -42,7 +42,7 @@ abstract class BaseScene : Scene(), FrameActive {
                 Deco(
                     r.nextFloat(), r.nextFloat(),
                     D.dp(14f) + r.nextFloat() * D.dp(30f),
-                    D.withAlpha(c.toInt(), 26),
+                    D.withAlpha(c.toInt(), 40),
                     D.dp(10f) + r.nextFloat() * D.dp(26f),
                     (r.nextFloat() - 0.5f) * D.dp(14f),
                     r.nextFloat() * 360f,
@@ -72,7 +72,7 @@ abstract class BaseScene : Scene(), FrameActive {
         val h = host.height.toFloat()
         D.gradientRect(c, 0f, 0f, w, h, D.color(theme.bgTop), D.color(theme.bgBottom))
         // soft radial glow behind center
-        D.glowCircle(c, w / 2f, h * 0.38f, w * 0.7f, D.color(theme.accent), 26)
+        D.glowCircle(c, w / 2f, h * 0.36f, w * 0.72f, D.color(theme.accent), 36)
         // floating deco blocks
         for (d in decoBlocks) {
             c.save()
@@ -81,14 +81,25 @@ abstract class BaseScene : Scene(), FrameActive {
             D.rect(c, d.x * w - s / 2, d.y * h - s / 2, d.x * w + s / 2, d.y * h + s / 2, d.color, s * 0.22f)
             c.restore()
         }
+        // vignette for depth
+        D.p.alpha = 255
+        D.p.shader = android.graphics.RadialGradient(
+            w / 2f, h * 0.45f, h * 0.75f,
+            D.withAlpha(Color.BLACK, 0), D.withAlpha(Color.BLACK, 100), android.graphics.Shader.TileMode.CLAMP,
+        )
+        c.drawRect(0f, 0f, w, h, D.p)
+        D.p.shader = null
     }
 
     /** Common top bar: back button left, title center, coins right. */
     fun renderTopBar(c: Canvas, title: String) {
         val w = host.width.toFloat()
         val cy = host.safeTop + D.dp(20f)
-        D.text(c, title, w / 2f, cy + D.sp(10f), D.sp(20f), D.color(theme.textPrimary))
-        if (coinPill == null) coinPill = CoinPill(w - D.dp(110f), cy) { onCoinsTap() }
+        D.text(c, title, w / 2f, cy + D.sp(9f), D.sp(20f), D.color(theme.textPrimary))
+        // accent underline under title
+        val tw = D.textWidth(title, D.sp(20f))
+        D.rect(c, w / 2f - tw / 2f + D.dp(2f), cy + D.sp(16f), w / 2f + tw / 2f - D.dp(2f), cy + D.sp(16f) + D.dp(2.5f), D.withAlpha(D.color(theme.accent), 170), D.dp(1.5f))
+        if (coinPill == null) coinPill = CoinPill(w - D.dp(108f), cy) { onCoinsTap() }
         coinPill?.render(c)
         backButton?.render(c)
     }
@@ -97,6 +108,7 @@ abstract class BaseScene : Scene(), FrameActive {
 
     fun makeBackButton(): UiIconButton {
         val b = UiIconButton(D.dp(40f), host.safeTop + D.dp(20f), D.dp(19f), "‹") { scene().pop() }
+        b.bg = D.withAlpha(Color.WHITE, 44)
         backButton = b
         return b
     }

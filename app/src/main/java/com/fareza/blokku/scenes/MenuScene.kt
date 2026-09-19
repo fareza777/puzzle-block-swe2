@@ -66,9 +66,12 @@ class MenuScene : BaseScene() {
             return b
         }
 
-        btn(R.string.menu_classic, bg = D.color(theme.accent), icon = "▶") {
-            scene().push(GameScene(GameEngine.classic()))
-        }
+        val hero = UiButton(RectF(bx, y, bx + bw, y + D.dp(64f)), s(R.string.menu_classic), icon = "▶", bg = 0xFFF07818.toInt(), fg = Color.WHITE, onTap = {
+            Audio.play("click"); Haptic.tick(); scene().push(GameScene(GameEngine.classic()))
+        })
+        hero.bgEnd = 0xFFFFC65C.toInt()
+        hero.appearDelay = buttons.size * 0.06f; hero.appear.t = -hero.appearDelay
+        buttons.add(hero)
         y += D.dp(72f)
         // row of two
         val half = (bw - D.dp(12f)) / 2f
@@ -93,7 +96,7 @@ class MenuScene : BaseScene() {
             Triple(R.string.menu_stats, "▤") { scene().push(StatsScene()) },
             Triple(R.string.menu_themes, "◈") { scene().push(ThemesScene()) },
         )) {
-            val b = UiButton(RectF(xx, y, xx + third, y + D.dp(52f)), s(res), icon = ic, bg = D.withAlpha(Color.WHITE, 32), fg = D.color(theme.textPrimary), onTap = {
+            val b = UiButton(RectF(xx, y, xx + third, y + D.dp(52f)), s(res), icon = ic, bg = D.lighten(D.color(theme.boardBg), 0.10f), fg = D.color(theme.textPrimary), onTap = {
                 Audio.play("click"); Haptic.tick(); act()
             }, textScale = 0.8f)
             b.appearDelay = 0.18f + buttons.size * 0.02f
@@ -105,14 +108,17 @@ class MenuScene : BaseScene() {
 
         // daily reward card
         if (canClaimDaily) {
-            val rb = UiButton(RectF(bx, y, bx + bw, y + D.dp(52f)), s(R.string.daily_reward), icon = "🎁", bg = 0xFFFFB84D.toInt(), fg = 0xFF40260A.toInt(), onTap = { claimDaily() })
+            val rb = UiButton(RectF(bx, y, bx + bw, y + D.dp(56f)), s(R.string.daily_reward), icon = "🎁", bg = 0xFFE8890C.toInt(), fg = Color.WHITE, onTap = { claimDaily() })
+            rb.bgEnd = 0xFFFFCF5C.toInt()
             rb.appearDelay = 0.3f; rb.appear.t = -0.3f
             buttons.add(rb)
             rewardBtn = rb
         }
 
         settingsBtn = UiIconButton(D.dp(40f), host.safeTop + D.dp(20f), D.dp(19f), "⚙") { scene().push(SettingsScene()) }
-        infoBtn = UiIconButton(D.dp(88f), host.safeTop + D.dp(20f), D.dp(19f), "?") { scene().push(TutorialScene()) }
+        settingsBtn?.bg = D.withAlpha(Color.WHITE, 44)
+        infoBtn = UiIconButton(D.dp(92f), host.safeTop + D.dp(20f), D.dp(19f), "?") { scene().push(TutorialScene()) }
+        infoBtn?.bg = D.withAlpha(Color.WHITE, 44)
     }
 
     private fun claimDaily() {
@@ -188,13 +194,15 @@ class MenuScene : BaseScene() {
         }
         // tagline
         val a = ((logoT - 0.5f) / 0.6f).coerceIn(0f, 1f)
-        D.text(c, "a block puzzle", w / 2f, cy + D.dp(52f), D.sp(14f), D.withAlpha(D.color(theme.textPrimary), (180 * a).toInt()), bold = false)
+        D.labelText(c, "a block puzzle", w / 2f, cy + D.dp(54f), D.sp(12f), D.withAlpha(D.color(theme.textPrimary), (200 * a).toInt()))
         // best score chip
         if (Save.bestClassic > 0) {
             val label = "★ ${s(R.string.best)}: ${Save.bestClassic}"
-            val tw = D.textWidth(label, D.sp(13f)) + D.dp(24f)
-            D.rect(c, w / 2f - tw / 2, cy + D.dp(66f), w / 2f + tw / 2, cy + D.dp(94f), D.withAlpha(Color.BLACK, 60), D.dp(14f))
-            D.text(c, label, w / 2f, cy + D.dp(85f), D.sp(13f), 0xFFFFD166.toInt())
+            val tw = D.textWidth(label, D.sp(13f)) + D.dp(28f)
+            D.rect(c, w / 2f - tw / 2, cy + D.dp(70f), w / 2f + tw / 2 + D.dp(2f), cy + D.dp(100f) + D.dp(3f), D.withAlpha(Color.BLACK, 60), D.dp(16f))
+            D.gradientRect(c, w / 2f - tw / 2, cy + D.dp(70f), w / 2f + tw / 2, cy + D.dp(100f), D.withAlpha(D.color(theme.boardBg), 220), D.withAlpha(D.darken(D.color(theme.boardBg), 0.15f), 220), D.dp(16f))
+            D.rectStroke(c, w / 2f - tw / 2, cy + D.dp(70f), w / 2f + tw / 2, cy + D.dp(100f), D.withAlpha(0xFFFFD166.toInt(), 90), 1.4f, D.dp(16f))
+            D.text(c, label, w / 2f, cy + D.dp(90f), D.sp(13f), 0xFFFFD166.toInt())
         }
     }
 

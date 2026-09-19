@@ -61,19 +61,60 @@ object D {
         p.style = Paint.Style.FILL
     }
 
-    fun gradientRect(c: Canvas, l: Float, t: Float, r: Float, b: Float, c1: Int, c2: Int, radius: Float = 0f) {
+    fun gradientRect(c: Canvas, l: Float, t: Float, r: Float, b: Float, c1: Int, c2: Int, radius: Float = 0f, alpha: Int = 255) {
+        p.alpha = alpha
         p.shader = LinearGradient(l, t, l, b, c1, c2, Shader.TileMode.CLAMP)
         if (radius <= 0f) c.drawRect(l, t, r, b, p)
         else { tmpRect.set(l, t, r, b); c.drawRoundRect(tmpRect, radius, radius, p) }
         p.shader = null
+        p.alpha = 255
     }
 
     fun glowCircle(c: Canvas, x: Float, y: Float, radius: Float, color: Int, innerAlpha: Int = 140) {
+        p.alpha = 255
         p.shader = RadialGradient(
             x, y, radius, withAlpha(color, innerAlpha), withAlpha(color, 0), Shader.TileMode.CLAMP
         )
         c.drawCircle(x, y, radius, p)
         p.shader = null
+    }
+
+    /** Premium card: drop shadow + vertical gradient + hairline stroke + top sheen. */
+    fun card(c: Canvas, l: Float, t: Float, r: Float, b: Float, color: Int, radius: Float, elevated: Boolean = true) {
+        if (elevated) rect(c, l, t + radius * 0.22f, r, b + radius * 0.26f, withAlpha(Color.BLACK, 74), radius)
+        gradientRect(c, l, t, r, b, lighten(color, 0.09f), darken(color, 0.07f), radius)
+        // top sheen line
+        p.color = withAlpha(Color.WHITE, 34)
+        tmpRect.set(l + radius * 0.5f, t + dp(1.6f), r - radius * 0.5f, t + dp(1.6f) + 2f)
+        tmpPath.reset()
+        tmpPath.addRoundRect(tmpRect, 4f, 4f, Path.Direction.CW)
+        c.drawPath(tmpPath, p)
+        rectStroke(c, l + 0.7f, t + 0.7f, r - 0.7f, b - 0.7f, withAlpha(Color.WHITE, 22), 1.4f, radius)
+    }
+
+    /** "Slot" inset look for empty board cells: subtle inset shadow at bottom + faint top edge. */
+    fun insetCell(c: Canvas, l: Float, t: Float, r: Float, b: Float, color: Int, radius: Float) {
+        gradientRect(c, l, t, r, b, darken(color, 0.10f), lighten(color, 0.05f), radius)
+        p.color = withAlpha(Color.BLACK, 26)
+        tmpRect.set(l + radius * 0.35f, b - (b - t) * 0.16f, r - radius * 0.35f, b - (b - t) * 0.05f)
+        tmpPath.reset()
+        tmpPath.addRoundRect(tmpRect, radius * 0.5f, radius * 0.5f, Path.Direction.CW)
+        c.drawPath(tmpPath, p)
+    }
+
+    /** Text with letter spacing for labels (small caps look). */
+    fun labelText(c: Canvas, s: String, x: Float, y: Float, sizePx: Float, color: Int,
+                  align: Paint.Align = Paint.Align.CENTER, spacing: Float = 0.14f) {
+        txt.shader = null
+        txt.textSize = sizePx
+        txt.color = color
+        txt.alpha = 255
+        txt.textAlign = align
+        txt.typeface = Typeface.DEFAULT_BOLD
+        txt.letterSpacing = spacing
+        c.drawText(s.uppercase(), x, y, txt)
+        txt.letterSpacing = 0f
+        txt.alpha = 255
     }
 
     fun circle(c: Canvas, x: Float, y: Float, radius: Float, color: Int) {
@@ -115,8 +156,7 @@ object D {
     fun blockCell(c: Canvas, l: Float, t: Float, r: Float, b: Float, color: Int, radius: Float, alpha: Int = 255) {
         val w = r - l
         val h = b - t
-        p.alpha = alpha
-        gradientRect(c, l, t, r, b, lighten(color, 0.18f), color, radius)
+        gradientRect(c, l, t, r, b, lighten(color, 0.18f), color, radius, alpha)
         // inner top highlight
         p.color = withAlpha(Color.WHITE, alpha * 40 / 255)
         tmpRect.set(l + w * 0.10f, t + h * 0.08f, r - w * 0.10f, t + h * 0.34f)

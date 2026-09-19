@@ -141,7 +141,7 @@ class GameScene(
         trayCell = cell * 0.62f
         trayY = powerY + powerSize + D.dp(12f)
 
-        meterRect = RectF(w / 2f - D.dp(70f), hudTop + D.dp(30f), w / 2f + D.dp(70f), hudTop + D.dp(38f))
+        meterRect = RectF(w / 2f - D.dp(76f), hudTop + D.dp(52f), w / 2f + D.dp(76f), hudTop + D.dp(64f))
         coinPill = null
     }
 
@@ -521,23 +521,28 @@ class GameScene(
     private fun renderHud(c: Canvas) {
         val w = host.width.toFloat()
         pauseBtn?.render(c)
-        // score
-        D.text(c, "${engine.score}", w / 2f, hudTop + D.sp(14f), D.sp(30f), D.color(theme.textPrimary))
+        // score block: small caps label over big number
+        D.labelText(c, s(R.string.score), w / 2f, hudTop - D.sp(4f), D.sp(10f), D.withAlpha(D.color(theme.textPrimary), 160))
+        D.text(c, "${engine.score}", w / 2f, hudTop + D.sp(22f), D.sp(30f), D.color(theme.textPrimary))
         val sub = when (engine.mode) {
             Mode.CLASSIC -> "${s(R.string.best)} ${max(Save.bestClassic, engine.score)}"
             Mode.LEVEL -> "${s(R.string.level)} ${levelIndex + 1} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
             Mode.DAILY -> "${s(R.string.menu_daily)} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
         }
-        D.text(c, sub, w / 2f, hudTop + D.sp(14f) + D.sp(15f), D.sp(12f), D.withAlpha(D.color(theme.textPrimary), 200), bold = false)
+        D.text(c, sub, w / 2f, hudTop + D.sp(22f) + D.sp(15f), D.sp(11f), D.withAlpha(D.color(theme.textPrimary), 190), bold = false)
         if (coinPill == null) coinPill = com.fareza.blokku.ui.CoinPill(w - D.dp(106f), hudTop - D.dp(4f)) { onCoinsTap() }
         coinPill?.render(c)
-        // meter
+        // meter — taller pill with gradient fill
         val mr = meterRect
-        D.rect(c, mr.left, mr.top, mr.right, mr.bottom, D.withAlpha(Color.BLACK, 80), mr.height() / 2)
+        D.rect(c, mr.left, mr.top + D.dp(2f), mr.right, mr.bottom + D.dp(3f), D.withAlpha(Color.BLACK, 80), mr.height() / 2)
+        D.rect(c, mr.left, mr.top, mr.right, mr.bottom, D.withAlpha(Color.BLACK, 100), mr.height() / 2)
+        D.rectStroke(c, mr.left + 0.6f, mr.top + 0.6f, mr.right - 0.6f, mr.bottom - 0.6f, D.withAlpha(Color.WHITE, 30), 1f, mr.height() / 2)
         val fill = engine.meter / 100f
         if (fill > 0) {
-            val glowCol = if (meterFlash > 0) Color.WHITE else D.color(theme.accent)
-            D.rect(c, mr.left + 2, mr.top + 2, mr.left + 2 + (mr.width() - 4) * fill, mr.bottom - 2, glowCol, mr.height() / 2)
+            val fr = mr.left + 3 + (mr.width() - 6) * fill
+            val c1 = if (meterFlash > 0) Color.WHITE else D.lighten(D.color(theme.accent), 0.15f)
+            val c2 = if (meterFlash > 0) Color.WHITE else D.darken(D.color(theme.accent), 0.12f)
+            D.gradientRect(c, mr.left + 3, mr.top + 3, fr, mr.bottom - 3, c1, c2, mr.height() / 2)
         }
         if (meterFlash > 0) D.glowCircle(c, mr.centerX(), mr.centerY(), D.dp(60f) * meterFlash, D.color(theme.accent), (120 * meterFlash).toInt())
     }
@@ -562,17 +567,16 @@ class GameScene(
         c.save()
         c.scale(0.92f + 0.08f * a, 0.92f + 0.08f * a, cx, cy)
 
-        // board panel
-        val pad = D.dp(6f)
-        D.rect(c, boardRect.left - pad, boardRect.top - pad + D.dp(4f), boardRect.right + pad, boardRect.bottom + pad, D.withAlpha(Color.BLACK, 70), D.dp(16f))
-        D.rect(c, boardRect.left - pad, boardRect.top - pad, boardRect.right + pad, boardRect.bottom + pad, D.color(theme.boardBg), D.dp(16f))
+        // board panel — elevated card
+        val pad = D.dp(7f)
+        D.card(c, boardRect.left - pad, boardRect.top - pad, boardRect.right + pad, boardRect.bottom + pad, D.color(theme.boardBg), D.dp(18f))
 
-        // empty cells
+        // empty cells — inset slot look
         for (r in 0 until 9) {
             for (col in 0 until 9) {
                 val l = boardRect.left + col * cell + cell * 0.06f
                 val t = boardRect.top + r * cell + cell * 0.06f
-                D.rect(c, l, t, l + cell * 0.88f, t + cell * 0.88f, D.color(theme.cellEmpty), cell * 0.18f)
+                D.insetCell(c, l, t, l + cell * 0.88f, t + cell * 0.88f, D.color(theme.cellEmpty), cell * 0.18f)
             }
         }
 
@@ -660,22 +664,37 @@ class GameScene(
         }
     }
 
+    private val powerTints = intArrayOf(0xFF64B5F6.toInt(), 0xFF7BE495.toInt(), 0xFFFF8A65.toInt(), 0xFFBA8DF5.toInt())
+
     private fun renderPowerBar(c: Canvas) {
         for (i in 0..3) {
             val r = powerRects[i]
             val kind = powerKinds[i]
+            val tint = powerTints[i]
             val count = Save.powerUps(kind)
             val armed = (kind == PowerKind.BOMB && bombArmed) || (kind == PowerKind.ROTATE && rotateArmed)
             val canUndo = kind != PowerKind.UNDO || engine.canUndo
-            val alpha = if (count <= 0 || !canUndo) 90 else 255
-            // bg
-            D.rect(c, r.left, r.top + D.dp(3f), r.right, r.bottom + D.dp(2f), D.withAlpha(Color.BLACK, 50), D.dp(14f))
-            D.rect(c, r.left, r.top, r.right, r.bottom, if (armed) D.color(theme.accent) else D.color(theme.boardBg), D.dp(14f))
-            if (armed) D.rectStroke(c, r.left, r.top, r.right, r.bottom, Color.WHITE, D.dp(1.5f), D.dp(14f))
-            Glyph.draw(c, powerGlyphs[i], RectF(r.left + D.dp(8f), r.top + D.dp(8f), r.right - D.dp(8f), r.bottom - D.dp(8f)), D.withAlpha(D.color(theme.textPrimary), alpha))
-            // count badge
-            D.circle(c, r.right - D.dp(3f), r.top + D.dp(3f), D.dp(10f), if (count > 0) 0xFFFF5D73.toInt() else 0xFF555566.toInt())
-            D.text(c, "$count", r.right - D.dp(3f), r.top + D.dp(3f) + D.sp(9f) * 0.36f, D.sp(9f), Color.WHITE)
+            val usable = count > 0 && canUndo
+            val alpha = if (usable) 255 else 110
+            // card
+            if (armed) {
+                D.rect(c, r.left, r.top + D.dp(3f), r.right, r.bottom + D.dp(3f), D.withAlpha(Color.BLACK, 80), D.dp(15f))
+                D.gradientRect(c, r.left, r.top, r.right, r.bottom, D.lighten(tint, 0.12f), D.darken(tint, 0.12f), D.dp(15f))
+                D.rectStroke(c, r.left + 0.8f, r.top + 0.8f, r.right - 0.8f, r.bottom - 0.8f, D.withAlpha(Color.WHITE, 200), D.dp(1.5f), D.dp(15f))
+            } else {
+                D.card(c, r.left, r.top, r.right, r.bottom, D.color(theme.boardBg), D.dp(15f), elevated = usable)
+                D.rectStroke(c, r.left + 0.8f, r.top + 0.8f, r.right - 0.8f, r.bottom - 0.8f, D.withAlpha(tint, if (usable) 90 else 40), 1.2f, D.dp(15f))
+            }
+            // icon on tinted circle chip
+            val ic = r.centerX(); val icy = r.centerY() - D.dp(2f)
+            val chipR = D.dp(14.5f)
+            D.circle(c, ic, icy, chipR, D.withAlpha(tint, if (usable) 46 else 24))
+            Glyph.draw(c, powerGlyphs[i], RectF(ic - chipR * 0.72f, icy - chipR * 0.72f, ic + chipR * 0.72f, icy + chipR * 0.72f), D.withAlpha(if (armed) Color.WHITE else tint, alpha))
+            // count chip at bottom-right corner
+            val badgeCol = if (count > 0) tint else 0xFF777788.toInt()
+            D.circle(c, r.right - D.dp(6f), r.top + D.dp(6f), D.dp(10f), D.withAlpha(Color.BLACK, 90))
+            D.circle(c, r.right - D.dp(6f), r.top + D.dp(6f), D.dp(8.5f), badgeCol)
+            D.text(c, "$count", r.right - D.dp(6f), r.top + D.dp(6f) + D.sp(9f) * 0.36f, D.sp(9f), Color.WHITE)
         }
     }
 
@@ -688,13 +707,15 @@ class GameScene(
             val cx = slotW * i + slotW / 2f
             val cy = trayTop + trayH / 2f
             val p = engine.tray[i]
-            // slot bg
-            val slotRect = RectF(slotW * i + D.dp(6f), trayTop, slotW * (i + 1) - D.dp(6f), trayTop + trayH)
+            // slot card — always visible for visual rhythm
+            val slotRect = RectF(slotW * i + D.dp(7f), trayTop + D.dp(4f), slotW * (i + 1) - D.dp(7f), trayTop + trayH)
             trayRects[i] = slotRect
+            val sr = RectF(slotRect.left, slotRect.top + slotRect.height() * 0.14f, slotRect.right, slotRect.bottom - slotRect.height() * 0.1f)
             if (p == null) {
-                D.rect(c, slotRect.left, slotRect.top + slotRect.height() * 0.2f, slotRect.right, slotRect.bottom - slotRect.height() * 0.2f, D.withAlpha(Color.WHITE, 12), D.dp(14f))
+                D.insetCell(c, sr.left, sr.top, sr.right, sr.bottom, D.withAlpha(D.color(theme.cellEmpty), 110), D.dp(16f))
                 continue
             }
+            D.card(c, sr.left, sr.top, sr.right, sr.bottom, D.color(theme.boardBg), D.dp(16f), elevated = true)
             val fitsAny = engine.board.anyFit(p)
             val popK = Ease.outBack(trayPop[i])
             val pieceW = p.cols * trayCell * popK
@@ -770,8 +791,9 @@ class GameScene(
         dialogRect.set(dl, dt, dl + dw, dt + dh)
         c.save()
         c.scale(overlayAnim.v.coerceIn(0.01f, 1.2f), overlayAnim.v.coerceIn(0.01f, 1.2f), dialogRect.centerX(), dialogRect.centerY())
-        D.rect(c, dialogRect.left, dialogRect.top + D.dp(6f), dialogRect.right, dialogRect.bottom + D.dp(6f), D.withAlpha(Color.BLACK, 80), D.dp(22f))
-        D.gradientRect(c, dialogRect.left, dialogRect.top, dialogRect.right, dialogRect.bottom, D.lighten(D.color(theme.boardBg), 0.12f), D.color(theme.boardBg), D.dp(22f))
+        D.rect(c, dialogRect.left, dialogRect.top + D.dp(8f), dialogRect.right, dialogRect.bottom + D.dp(9f), D.withAlpha(Color.BLACK, 110), D.dp(24f))
+        D.gradientRect(c, dialogRect.left, dialogRect.top, dialogRect.right, dialogRect.bottom, D.lighten(D.color(theme.boardBg), 0.16f), D.darken(D.color(theme.boardBg), 0.04f), D.dp(24f))
+        D.rectStroke(c, dialogRect.left + 0.8f, dialogRect.top + 0.8f, dialogRect.right - 0.8f, dialogRect.bottom - 0.8f, D.withAlpha(Color.WHITE, 40), 1.4f, D.dp(24f))
         c.restore()
 
         overlayButtons.clear()
@@ -792,8 +814,15 @@ class GameScene(
         return btn
     }
 
+    private fun overlayTitle(c: Canvas, title: String, y: Float, size: Float = D.sp(23f)) {
+        val cx = dialogRect.centerX()
+        D.text(c, title, cx, y, size, D.color(theme.textPrimary))
+        val tw = D.textWidth(title, size)
+        D.rect(c, cx - tw / 2f + D.dp(3f), y + D.sp(7f), cx + tw / 2f - D.dp(3f), y + D.sp(7f) + D.dp(2.5f), D.color(theme.accent), D.dp(1.5f))
+    }
+
     private fun renderPauseOverlay(c: Canvas) {
-        D.text(c, s(R.string.paused), dialogRect.centerX(), dialogRect.top + D.dp(44f), D.sp(24f), D.color(theme.textPrimary))
+        overlayTitle(c, s(R.string.paused), dialogRect.top + D.dp(44f))
         val bw = dialogRect.width() - D.dp(48f)
         val bx = dialogRect.left + D.dp(24f)
         var by = dialogRect.top + D.dp(70f)
@@ -805,16 +834,16 @@ class GameScene(
             restart(); Audio.play("click")
         }
         by += D.dp(60f)
-        overlayBtn(bx, by, bx + bw, by + D.dp(50f), s(R.string.quit), D.withAlpha(Color.WHITE, 40)) {
+        overlayBtn(bx, by, bx + bw, by + D.dp(50f), s(R.string.quit), D.lighten(D.color(theme.boardBg), 0.12f)) {
             overlay = Overlay.QUIT_CONFIRM; overlayAnim.reset()
         }
     }
 
     private fun renderQuitOverlay(c: Canvas) {
-        D.text(c, s(R.string.quit_confirm), dialogRect.centerX(), dialogRect.top + D.dp(50f), D.sp(14f), D.color(theme.textPrimary), bold = false)
+        overlayTitle(c, s(R.string.quit_confirm), dialogRect.top + D.dp(42f), D.sp(15f))
         val bw = (dialogRect.width() - D.dp(60f)) / 2f
         val by = dialogRect.bottom - D.dp(70f)
-        overlayBtn(dialogRect.left + D.dp(24f), by, dialogRect.left + D.dp(24f) + bw, by + D.dp(48f), s(R.string.no), D.withAlpha(Color.WHITE, 40)) {
+        overlayBtn(dialogRect.left + D.dp(24f), by, dialogRect.left + D.dp(24f) + bw, by + D.dp(48f), s(R.string.no), D.lighten(D.color(theme.boardBg), 0.12f)) {
             overlay = Overlay.PAUSE; overlayAnim.reset()
         }
         overlayBtn(dialogRect.right - D.dp(24f) - bw, by, dialogRect.right - D.dp(24f), by + D.dp(48f), s(R.string.yes), 0xFFFF5D73.toInt()) {
@@ -826,7 +855,7 @@ class GameScene(
 
     private fun renderGameOverOverlay(c: Canvas) {
         val cx = dialogRect.centerX()
-        D.text(c, s(R.string.game_over), cx, dialogRect.top + D.dp(40f), D.sp(22f), D.color(theme.textPrimary))
+        overlayTitle(c, s(R.string.game_over), dialogRect.top + D.dp(40f), D.sp(22f))
         val isBest = engine.mode == Mode.CLASSIC && engine.score >= Save.bestClassic && engine.score > 0
         if (isBest) D.text(c, s(R.string.new_best), cx, dialogRect.top + D.dp(64f), D.sp(14f), D.color(theme.accent))
         D.text(c, "${engine.score}", cx, dialogRect.top + D.dp(100f), D.sp(40f), D.color(theme.textPrimary))
@@ -844,7 +873,7 @@ class GameScene(
             restart(); Audio.play("click")
         }
         by += D.dp(58f)
-        overlayBtn(bx, by, bx + bw, by + D.dp(48f), s(R.string.quit), D.withAlpha(Color.WHITE, 40)) {
+        overlayBtn(bx, by, bx + bw, by + D.dp(48f), s(R.string.quit), D.lighten(D.color(theme.boardBg), 0.12f)) {
             commitStats(); scene().pop(); Ads.maybeInterstitial(host.context)
         }
     }
@@ -852,7 +881,7 @@ class GameScene(
     private fun renderLevelCompleteOverlay(c: Canvas) {
         val cx = dialogRect.centerX()
         val title = if (engine.mode == Mode.DAILY) s(R.string.daily_complete) else s(R.string.level_complete)
-        D.text(c, title, cx, dialogRect.top + D.dp(42f), D.sp(21f), D.color(theme.textPrimary))
+        overlayTitle(c, title, dialogRect.top + D.dp(42f), D.sp(21f))
         // stars
         for (i in 0..2) {
             val sx = cx + (i - 1) * D.dp(56f)
@@ -877,7 +906,7 @@ class GameScene(
             }
             by += D.dp(60f)
         }
-        overlayBtn(bx, by, bx + bw, by + D.dp(50f), s(R.string.menu_play), D.withAlpha(Color.WHITE, 40)) {
+        overlayBtn(bx, by, bx + bw, by + D.dp(50f), s(R.string.menu_play), D.lighten(D.color(theme.boardBg), 0.12f)) {
             scene().pop()
         }
     }
