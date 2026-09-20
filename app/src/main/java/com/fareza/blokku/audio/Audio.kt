@@ -26,6 +26,7 @@ object Audio {
     private var menuVol = 0f
     private var gameVol = 0f
     private var appPaused = false
+    private var musicTempo = 1f
     private const val MUSIC_VOL = 0.34f
 
     private val sfxMap = mapOf(
@@ -90,6 +91,13 @@ object Audio {
     fun setMusicMode(mode: Int) {
         musicMode = mode
         if (Save.musicOn) startMusic()
+    }
+
+    /** Fever Rush pushes the in-game track a touch faster (API 23+ playbackParams). */
+    fun setMusicTempo(rate: Float) {
+        if (rate == musicTempo) return
+        musicTempo = rate
+        try { musicGame?.let { it.playbackParams = it.playbackParams.setSpeed(rate) } } catch (e: Exception) {}
     }
 
     private fun startMusic() {

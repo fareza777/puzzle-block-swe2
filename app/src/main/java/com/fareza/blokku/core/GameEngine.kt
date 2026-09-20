@@ -212,6 +212,13 @@ class GameEngine(
         return true
     }
 
+    /** Lucky Break: when the board is ≥80% full the game pities the player —
+     *  friendlier (smaller) pieces and denser bonus cells. UI shows LAST STAND. */
+    val lastStand: Boolean
+        get() = board.filledCount() >= board.size * board.size * 4 / 5
+
+    private fun effGemChance() = if (lastStand) (gemChance * 2.2f).coerceAtMost(0.6f) else gemChance
+
     fun refillTray() {
         // full refill consumes the previewed next-tray so the preview is honest
         for (i in 0..2) {
@@ -238,8 +245,8 @@ class GameEngine(
         for (i in 0..2) if (nextTray[i] == null) {
             nextTray[i] = nextPiece()
             val p = nextTray[i]!!
-            nextGem[i] = if (rng.nextFloat() < gemChance) p.cells[rng.nextInt(p.cells.size)] else -1
-            nextBomb[i] = if (rng.nextFloat() < 0.13f) {
+            nextGem[i] = if (rng.nextFloat() < effGemChance()) p.cells[rng.nextInt(p.cells.size)] else -1
+            nextBomb[i] = if (rng.nextFloat() < (if (lastStand) 0.22f else 0.13f)) {
                 var pick = p.cells[rng.nextInt(p.cells.size)]
                 var tries = 0
                 while (pick == nextGem[i] && tries++ < 4) pick = p.cells[rng.nextInt(p.cells.size)]
@@ -258,8 +265,8 @@ class GameEngine(
      *  ~1-in-8 carry a bomb cell that detonates 3x3 when its line clears. */
     private fun rollSpecial(i: Int) {
         val p = tray[i]
-        trayGem[i] = if (p != null && rng.nextFloat() < gemChance) p.cells[rng.nextInt(p.cells.size)] else -1
-        trayBomb[i] = if (p != null && rng.nextFloat() < 0.13f) {
+        trayGem[i] = if (p != null && rng.nextFloat() < effGemChance()) p.cells[rng.nextInt(p.cells.size)] else -1
+        trayBomb[i] = if (p != null && rng.nextFloat() < (if (lastStand) 0.22f else 0.13f)) {
             // prefer a different cell than the gem so the piece reads clearly
             var pick = p.cells[rng.nextInt(p.cells.size)]
             var tries = 0
@@ -274,9 +281,12 @@ class GameEngine(
         } else -1
     }
 
-    private fun nextPiece(): Piece =
-        // Zen stays gentle: small shapes dominate so the board rarely jams
-        Shapes.randomPiece(rng, colorCount, bigBias, if (mode == Mode.ZEN) 1.6f else 0f)
+    private fun nextPiece(): Piece {
+        // Zen stays gentle: small shapes dominate so the board rarely jams.
+        // Lucky Break adds its own small-piece bias when the board is nearly full.
+        val sb = (if (mode == Mode.ZEN) 1.6f else 0f) + (if (lastStand) 1.1f else 0f)
+        return Shapes.randomPiece(rng, colorCount, bigBias, sb)
+    }
 
     /** Re-roll tray entries that don't fit (bounded) — used after preset board fills. */
     fun ensureTrayFits() {
@@ -752,6 +762,26 @@ class GameEngine(
     }
 
     companion object {
+        /**
+         * End-of-run letter grade: 0=C, 1=B, 2=A, 3=S.
+         * Thresholds are per-mode — Rush scores run lower than Classic.
+         */
+        fun grade(mode: Mode, score: Int): Int {
+            val t = when (mode) {
+                Mode.CLASSIC -> intArrayOf(1500, 3500, 6500)
+                Mode.ZEN -> intArrayOf(1200, 3000, 5500)
+                Mode.RUSH -> intArrayOf(700, 1500, 2800)
+                Mode.DAILY -> intArrayOf(500, 1200, 2200)
+                else -> intArrayOf(800, 2000, 4000)
+            }
+            return when {
+                score >= t[2] -> 3
+                score >= t[1] -> 2
+                score >= t[0] -> 1
+                else -> 0
+            }
+        }
+
         fun classic(rng: Random = Random.Default) =
             GameEngine(Board(9), rng, Mode.CLASSIC, Goal(GoalType.NONE, 0), -1)
 
@@ -786,7 +816,9 @@ class GameEngine(
 
         fun puzzle(def: LevelDef): GameEngine {
             val e = GameEngine(Board(9), Random(def.seed), Mode.PUZZLE, def.goal, def.moveLimit)
-            Puzzles.seedBoard(e, def.index)
+            // weekly defs (index >= COUNT) salt the board layout with their seed
+            if (def.index >= Puzzles.COUNT) Puzzles.seedBoard(e, def.index, def.seed)
+            else Puzzles.seedBoard(e, def.index)
             e.ensureTrayFits()
             return e
         }

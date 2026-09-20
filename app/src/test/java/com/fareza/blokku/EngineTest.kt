@@ -555,4 +555,60 @@ class EngineTest {
         val old = engine.toJson().split(';').take(28).joinToString(";")
         assertTrue(GameEngine.fromJson(old) != null)
     }
+
+    // ---- v2.5: grades, lucky break, weekly puzzle ----
+
+    @Test
+    fun `run grades map score to bands per mode`() {
+        assertEquals(0, GameEngine.grade(com.fareza.blokku.core.Mode.CLASSIC, 0))
+        assertEquals(0, GameEngine.grade(com.fareza.blokku.core.Mode.CLASSIC, 1499))
+        assertEquals(1, GameEngine.grade(com.fareza.blokku.core.Mode.CLASSIC, 1500))
+        assertEquals(2, GameEngine.grade(com.fareza.blokku.core.Mode.CLASSIC, 3500))
+        assertEquals(3, GameEngine.grade(com.fareza.blokku.core.Mode.CLASSIC, 6500))
+        assertEquals(3, GameEngine.grade(com.fareza.blokku.core.Mode.CLASSIC, 99999))
+        // tighter bands on rush
+        assertEquals(0, GameEngine.grade(com.fareza.blokku.core.Mode.RUSH, 699))
+        assertEquals(1, GameEngine.grade(com.fareza.blokku.core.Mode.RUSH, 700))
+        assertEquals(3, GameEngine.grade(com.fareza.blokku.core.Mode.RUSH, 2800))
+        assertEquals(2, GameEngine.grade(com.fareza.blokku.core.Mode.ZEN, 3000))
+    }
+
+    @Test
+    fun `last stand flips at eighty percent full`() {
+        val e = GameEngine(Board(9), Random(5))
+        // 9*9*4/5 = 64
+        for (i in 0 until 63) e.board.cells[i] = 1
+        assertFalse(e.lastStand)
+        e.board.cells[63] = 1
+        assertTrue(e.lastStand)
+    }
+
+    @Test
+    fun `zen run serializes and restores`() {
+        val e = GameEngine.zen()
+        e.board.cells[0] = 3
+        e.tray[0] = single(2)
+        val back = GameEngine.fromJson(e.toJson())!!
+        assertEquals(com.fareza.blokku.core.Mode.ZEN, back.mode)
+        assertEquals(3, back.board.cells[0])
+        assertTrue(back.tray[0]!!.cells.contentEquals(single(2).cells))
+    }
+
+    @Test
+    fun `weekly puzzle def deterministic per week and distinct`() {
+        val d1 = com.fareza.blokku.core.Puzzles.weeklyDef(202638)
+        val d1b = com.fareza.blokku.core.Puzzles.weeklyDef(202638)
+        val d2 = com.fareza.blokku.core.Puzzles.weeklyDef(202639)
+        assertEquals(d1.goal.target, d1b.goal.target)
+        assertEquals(d1.seed, d1b.seed)
+        assertNotEquals(d1.seed, d2.seed)
+        // board seeded from the def actually marks the goal's stones
+        val e = GameEngine(Board(9), Random(0))
+        e.goal = d1.goal
+        com.fareza.blokku.core.Puzzles.seedBoard(e, d1.index, d1.seed)
+        var stoneCount = 0
+        for (i in 0 until 81) if (e.board.stones[i]) stoneCount++
+        // overlapping lines can mark fewer unique cells than the goal wants
+        assertTrue(stoneCount in 1..d1.goal.target)
+    }
 }

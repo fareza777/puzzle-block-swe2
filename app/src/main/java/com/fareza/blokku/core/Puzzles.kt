@@ -3,13 +3,13 @@ package com.fareza.blokku.core
 import kotlin.random.Random
 
 /**
- * Puzzle mode — 30 handcrafted-style (seed-procedural) boards.
+ * Puzzle mode — 60 handcrafted-style (seed-procedural) boards.
  * Each level pre-fills the board so a few lines are 1–3 cells short of full,
  * marks the filled cells of those lines as STONES, and hands the player a
  * limited move budget. Win = all stones cleared.
  */
 object Puzzles {
-    const val COUNT = 30
+    const val COUNT = 60
 
     fun get(index: Int): LevelDef {
         val i = index.coerceIn(0, COUNT - 1)
@@ -32,8 +32,8 @@ object Puzzles {
      * Seeds an engine's board: fills partial lines and marks their cells as stones.
      * Guarantees at least one tray piece can progress a stone line.
      */
-    fun seedBoard(e: GameEngine, index: Int) {
-        val rng = Random(97_000_000L + index * 131L)
+    fun seedBoard(e: GameEngine, index: Int, seedSalt: Long = index * 131L) {
+        val rng = Random(97_000_000L + seedSalt)
         val b = e.board
         val stoneLines = 1 + minOf(2, index / 10)
         var stonesWanted = e.goal.target
@@ -83,6 +83,14 @@ object Puzzles {
             val cell = r * b.size + c
             if (b.cells[cell] == 0) b.cells[cell] = 1 + rng.nextInt(6)
         }
+    }
+
+    /** Weekly puzzle: one deterministic challenge per calendar week. index=COUNT
+     *  marks it as non-pack (no stars recorded); the seed varies with the week. */
+    fun weeklyDef(weekSeed: Int): LevelDef {
+        val rng = Random(weekSeed * 31L + 7)
+        val stones = 6 + rng.nextInt(4)
+        return LevelDef(COUNT, Goal(GoalType.STONES, stones), stones * 2 + 7, 60_000_000L + weekSeed)
     }
 
     /** Stars: efficiency — share of the move budget left when solved. */

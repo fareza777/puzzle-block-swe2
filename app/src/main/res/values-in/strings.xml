@@ -192,4 +192,20 @@
     <string name="stats_mono">Garis mono</string>
     <string name="grace_tip">Maaf kombo — satu salah diampuni</string>
     <string name="powers_hint2">selesaikan KONTRAK untuk koin bonus\nsel ×3 melipatgandakan skor garis\nMONO: garis satu warna bayar ekstra\nPAS: kemas balok rapat untuk bonus</string>
+
+    <!-- v2.5 -->
+    <string name="record_banner">REKOR BARU!</string>
+    <string name="record_to_go">-%1$d lagi</string>
+    <string name="last_stand">LAST STAND</string>
+    <string name="combo_tier1">BAGUS</string>
+    <string name="combo_tier2">HEBAT</string>
+    <string name="combo_tier3">LUAR BIASA</string>
+    <string name="combo_tier4">LEGENDA</string>
+    <string name="continue_run_zen">Zen · Lanjutkan · %1$d</string>
+    <string name="weekly_tag">MINGGUAN</string>
+    <string name="weekly_puzzle">Puzzle Mingguan</string>
+    <string name="weekly_done">Selesai — kembali minggu depan</string>
+    <string name="stats_top_runs">Skor terbaik</string>
+    <string name="stats_no_runs">Belum ada skor</string>
+    <string name="stats_week_chart">Skor terbaik minggu ini</string>
 </resources>

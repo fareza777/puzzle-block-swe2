@@ -84,6 +84,7 @@ class MainActivity : Activity() {
     override fun onPause() {
         super.onPause()
         Audio.onAppPause()
+        gameView.doze() // freeze the frame loop — timers (Rush, level clocks) and idle anims must not run in background
     }
 
     @Deprecated("Deprecated in Java")

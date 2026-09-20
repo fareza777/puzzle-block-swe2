@@ -70,10 +70,13 @@ class MenuScene : BaseScene() {
         val colH = continueH + D.dp(74f) + D.dp(16f) + D.dp(60f) + D.dp(14f) + D.dp(60f) + D.dp(14f) + D.dp(56f) + D.dp(18f) + dailyH
         var y = contentTop + maxOf(0f, (statsRect.top - D.dp(14f) - contentTop - colH) / 2f)
 
-        // Continue saved classic run — slim banner above the hero
+        // Continue saved endless run (Classic or Zen) — slim banner above the hero
         if (Save.hasSavedRun()) {
-            val saved = Save.runJson.split(';').getOrNull(1)?.toIntOrNull() ?: 0
-            val cb = UiButton(RectF(bx, y, bx + bw, y + D.dp(52f)), s(R.string.continue_run, saved), icon = "g:play", bg = D.lighten(D.color(theme.boardBg), 0.16f), fg = D.color(theme.accent), onTap = {
+            val parts = Save.runJson.split(';')
+            val saved = parts.getOrNull(1)?.toIntOrNull() ?: 0
+            val savedMode = parts.getOrNull(0) ?: "CLASSIC"
+            val label = if (savedMode == "ZEN") s(R.string.continue_run_zen, saved) else s(R.string.continue_run, saved)
+            val cb = UiButton(RectF(bx, y, bx + bw, y + D.dp(52f)), label, icon = "g:play", bg = D.lighten(D.color(theme.boardBg), 0.16f), fg = D.color(theme.accent), onTap = {
                 Audio.play("click"); Haptic.tick()
                 val eng = GameEngine.fromJson(Save.runJson)
                 if (eng != null) scene().push(GameScene(eng)) else scene().push(GameScene(GameEngine.classic()))

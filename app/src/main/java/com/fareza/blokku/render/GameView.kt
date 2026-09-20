@@ -43,6 +43,11 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         } catch (e: Exception) { /* fall back to system fonts */ }
     }
 
+    /** App backgrounded: stop posting frames so timers/animations freeze and the CPU sleeps. */
+    @Volatile var hostPaused = false
+
+    fun doze() { hostPaused = true }
+
     fun startLoop() {
         if (!looping) {
             looping = true
@@ -54,6 +59,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     fun requestKeepAlive(v: Boolean) { keepAlive = v }
 
     override fun doFrame(frameTimeNanos: Long) {
+        if (hostPaused) { looping = false; lastNs = 0L; return }
         if (!looping) return
         if (lastNs == 0L) lastNs = frameTimeNanos
         val dt = ((frameTimeNanos - lastNs) / 1e9f).coerceIn(0f, 0.05f)
@@ -71,6 +77,7 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
     }
 
     fun wake() {
+        hostPaused = false
         scenes.needsFrame = true
         startLoop()
     }

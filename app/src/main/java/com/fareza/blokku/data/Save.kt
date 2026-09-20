@@ -176,10 +176,76 @@ object Save {
         return dailyStreak
     }
 
-    // ---- saved run (Continue feature) ----
+    // ---- saved run (Continue feature; classic + zen) ----
     var runJson get() = p.getString("runJson", "")!!; set(v) = p.edit().putString("runJson", v).apply()
     fun hasSavedRun() = runJson.isNotEmpty()
     fun clearSavedRun() { runJson = "" }
+
+    // ---- top-5 runs per mode + daily score history ----
+    /** Best N scores for a mode, sorted desc. mode is Mode.name.
+     *  Seeds from the legacy single best so existing players see their record. */
+    fun topRuns(mode: String): IntArray {
+        val s = p.getString("top_$mode", "")!!
+        if (s.isEmpty()) {
+            val legacy = when (mode) {
+                "CLASSIC" -> bestClassic
+                "ZEN" -> bestZen
+                "RUSH" -> bestRush
+                else -> 0
+            }
+            return if (legacy > 0) intArrayOf(legacy) else intArrayOf()
+        }
+        return s.split(',').mapNotNull { it.toIntOrNull() }.take(5).toIntArray()
+    }
+
+    /** Records a finished run: updates the mode's top-5 and today's best. */
+    fun recordRun(mode: String, score: Int) {
+        if (score <= 0) return
+        val list = topRuns(mode).toMutableList()
+        list.add(score)
+        list.sortDescending()
+        p.edit().putString("top_$mode", list.take(5).joinToString(",")).apply()
+        recordDayScore(score)
+    }
+
+    private fun todayKey(): String {
+        val cal = java.util.Calendar.getInstance()
+        return "%04d%02d%02d".format(cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH) + 1, cal.get(java.util.Calendar.DAY_OF_MONTH))
+    }
+
+    /** Daily best scores, newest 30 kept. Storage: "yyyyMMdd=score,..." */
+    fun recordDayScore(score: Int) {
+        val key = todayKey()
+        val map = LinkedHashMap<String, Int>()
+        p.getString("dayScores", "")!!.split(',').forEach { e ->
+            val kv = e.split('=')
+            if (kv.size == 2) kv[1].toIntOrNull()?.let { map[kv[0]] = it }
+        }
+        map[key] = maxOf(map[key] ?: 0, score)
+        while (map.size > 30) map.remove(map.keys.first())
+        p.edit().putString("dayScores", map.entries.joinToString(",") { "${it.key}=${it.value}" }).apply()
+    }
+
+    /** Scores of the last 7 calendar days, oldest→newest (0 for days not played). */
+    fun last7DayScores(): IntArray {
+        val map = HashMap<String, Int>()
+        p.getString("dayScores", "")!!.split(',').forEach { e ->
+            val kv = e.split('=')
+            if (kv.size == 2) kv[1].toIntOrNull()?.let { map[kv[0]] = it }
+        }
+        val out = IntArray(7)
+        val cal = java.util.Calendar.getInstance()
+        for (i in 6 downTo 0) {
+            val k = "%04d%02d%02d".format(cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH) + 1, cal.get(java.util.Calendar.DAY_OF_MONTH))
+            out[6 - i] = map[k] ?: 0
+            cal.add(java.util.Calendar.DAY_OF_MONTH, -1)
+        }
+        return out
+    }
+
+    // ---- weekly puzzle ----
+    var weeklyPuzzleKey get() = p.getInt("weeklyPuzzle", 0); set(v) = p.edit().putInt("weeklyPuzzle", v).apply()
+    fun weeklyPuzzleDone() = weeklyPuzzleKey == weekSeed()
 
     // ---- daily reminder notification ----
     var reminderOn get() = p.getBoolean("reminder", false); set(v) = p.edit().putBoolean("reminder", v).apply()

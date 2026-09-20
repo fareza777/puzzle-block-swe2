@@ -11,6 +11,7 @@ import com.fareza.blokku.audio.Audio
 import com.fareza.blokku.audio.Haptic
 import com.fareza.blokku.core.GameEngine
 import com.fareza.blokku.core.Levels
+import com.fareza.blokku.core.Mode
 import com.fareza.blokku.data.Achievements
 import com.fareza.blokku.data.Missions
 import com.fareza.blokku.data.Save
@@ -162,11 +163,31 @@ class PuzzleSelectScene : BaseScene() {
         c.clipRect(0f, top - D.dp(8f), w, host.height.toFloat() - D.dp(12f))
         c.translate(0f, scrollY)
 
-        var maxY = top
+        // weekly puzzle card on top of the pack grid
+        val weeklyDone = Save.weeklyPuzzleDone()
+        val wph = D.dp(56f)
+        val wpr = RectF(D.dp(20f), top, w - D.dp(20f), top + wph)
+        cellRects.add(wpr to com.fareza.blokku.core.Puzzles.COUNT) // sentinel index = weekly
+        D.rect(c, wpr.left, wpr.top + D.dp(4f), wpr.right, wpr.bottom + D.dp(4f), D.withAlpha(Color.BLACK, 80), D.dp(16f))
+        D.gradientRect(c, wpr.left, wpr.top, wpr.right, wpr.bottom, 0xFF5B3FA8.toInt(), 0xFF3F2A7A.toInt(), D.dp(16f))
+        D.rectStroke(c, wpr.left + 0.8f, wpr.top + 0.8f, wpr.right - 0.8f, wpr.bottom - 0.8f, D.withAlpha(0xFFBA8DF5.toInt(), 140), 1.3f, D.dp(16f))
+        val wtagW = D.textWidth(s(R.string.weekly_tag), D.sp(9f)) + D.dp(14f)
+        D.gradientRect(c, wpr.left + D.dp(14f), wpr.top + D.dp(10f), wpr.left + D.dp(14f) + wtagW, wpr.top + D.dp(26f), 0xFFBA8DF5.toInt(), 0xFF8A5CF6.toInt(), D.dp(8f))
+        D.text(c, s(R.string.weekly_tag), wpr.left + D.dp(14f) + wtagW / 2f, wpr.top + D.dp(21f), D.sp(9f), Color.WHITE)
+        D.text(c, s(R.string.weekly_puzzle), wpr.left + D.dp(14f), wpr.top + D.dp(45f), D.sp(14f), Color.WHITE, Paint.Align.LEFT)
+        if (weeklyDone) {
+            D.text(c, s(R.string.weekly_done), wpr.right - D.dp(16f), wpr.centerY() + D.sp(5f), D.sp(11f), 0xFF62D97B.toInt(), Paint.Align.RIGHT)
+        } else {
+            Glyph.draw(c, "star", RectF(wpr.right - D.dp(66f), wpr.centerY() - D.dp(8f), wpr.right - D.dp(50f), wpr.centerY() + D.dp(8f)), 0xFFFFD166.toInt())
+            D.text(c, "+2", wpr.right - D.dp(46f), wpr.centerY() + D.sp(5f), D.sp(12f), 0xFFFFD166.toInt(), Paint.Align.LEFT)
+        }
+
+        var maxY = wpr.bottom + D.dp(14f)
+        val gridTop = maxY
         for (i in 0 until com.fareza.blokku.core.Puzzles.COUNT) {
             val row = i / cols; val col = i % cols
             val l = D.dp(20f) + col * (cellW + gap)
-            val t = top + row * (cellW + gap)
+            val t = gridTop + row * (cellW + gap)
             maxY = t + cellW
             val stars = Save.puzzleStars(i)
             val open = i <= unlocked
@@ -218,7 +239,11 @@ class PuzzleSelectScene : BaseScene() {
                     for ((r, i) in cellRects) {
                         val rr = RectF(r.left, r.top + scrollY, r.right, r.bottom + scrollY)
                         if (rr.contains(e.x, e.y)) {
-                            if (i <= Save.maxUnlockedPuzzle() + 1) {
+                            if (i >= com.fareza.blokku.core.Puzzles.COUNT) {
+                                Audio.play("click"); Haptic.tick()
+                                scene().push(GameScene(GameEngine.puzzle(
+                                    com.fareza.blokku.core.Puzzles.weeklyDef(Save.weekSeed())), i))
+                            } else if (i <= Save.maxUnlockedPuzzle() + 1) {
                                 Audio.play("click"); Haptic.tick()
                                 scene().push(GameScene(GameEngine.puzzle(com.fareza.blokku.core.Puzzles.get(i)), i))
                             } else Audio.play("invalid")
@@ -271,6 +296,44 @@ class MissionsScene : BaseScene() {
         val cw = w - D.dp(48f)
 
         if (tab == 0) {
+            // weekly mission — a gold banner card above the daily set
+            val wm = Missions.thisWeek()
+            val wprog = Missions.progress(wm)
+            val wclaim = Missions.claimable(wm)
+            val wdone = Missions.done(wm)
+            val wh = cardH + D.dp(24f)
+            D.rect(c, D.dp(24f), y + D.dp(5f), D.dp(24f) + cw, y + wh + D.dp(5f), D.withAlpha(Color.BLACK, 80), D.dp(16f))
+            D.gradientRect(c, D.dp(24f), y, D.dp(24f) + cw, y + wh, 0xFF8A5A13.toInt(), 0xFF5E3C0C.toInt(), D.dp(16f))
+            D.rectStroke(c, D.dp(24f) + 0.8f, y + 0.8f, D.dp(24f) + cw - 0.8f, y + wh - 0.8f, D.withAlpha(0xFFFFD166.toInt(), 120), 1.3f, D.dp(16f))
+            val tagW = D.textWidth(s(R.string.weekly_tag), D.sp(9f)) + D.dp(14f)
+            D.gradientRect(c, D.dp(40f), y + D.dp(10f), D.dp(40f) + tagW, y + D.dp(26f), 0xFFFFD166.toInt(), 0xFFE8A93C.toInt(), D.dp(8f))
+            D.text(c, s(R.string.weekly_tag), D.dp(40f) + tagW / 2f, y + D.dp(21f), D.sp(9f), 0xFF3A2404.toInt())
+            val wrw = D.textWidth("+${wm.reward}", D.sp(11f)) + D.dp(20f)
+            D.rect(c, D.dp(24f) + cw - D.dp(10f) - wrw, y + D.dp(10f), D.dp(24f) + cw - D.dp(10f), y + D.dp(30f), D.withAlpha(0xFFFFD166.toInt(), 40), D.dp(10f))
+            D.text(c, "+${wm.reward}", D.dp(24f) + cw - D.dp(10f) - wrw / 2f, y + D.dp(24f), D.sp(11f), 0xFFFFD166.toInt())
+            D.textFit(c, s(wm.labelRes, wm.target), D.dp(40f), y + D.dp(46f), D.sp(13.5f), cw - D.dp(32f) - wrw, Color.WHITE, Paint.Align.LEFT, bold = false)
+            if (wclaim) {
+                val br = RectF(D.dp(24f) + cw - D.dp(80f), y + wh - D.dp(30f), D.dp(24f) + cw - D.dp(10f), y + wh - D.dp(2f))
+                buttons.add(UiButton(br, s(R.string.claim), bg = 0xFFFFD166.toInt(), fg = 0xFF3A2404.toInt(), onTap = {
+                    val got = Missions.claim(wm)
+                    Audio.play("coin")
+                    coinPill?.bump()
+                    addFloat(w / 2f, y, "+$got ${s(R.string.coins)}", 0xFFFFD166.toInt(), D.sp(18f))
+                }, textScale = 0.75f))
+                D.text(c, "$wprog/${wm.target}", D.dp(40f), y + wh - D.dp(10f), D.sp(12f), 0xFFFFD166.toInt(), Paint.Align.LEFT)
+            } else if (wdone) {
+                D.text(c, s(R.string.claimed), D.dp(40f), y + wh - D.dp(12f), D.sp(12f), 0xFFFFD166.toInt(), Paint.Align.LEFT)
+            } else {
+                val pr = RectF(D.dp(40f), y + wh - D.dp(18f), D.dp(24f) + cw - D.dp(24f), y + wh - D.dp(10f))
+                D.rect(c, pr.left, pr.top, pr.right, pr.bottom, D.withAlpha(Color.BLACK, 90), pr.height() / 2)
+                if (wprog > 0) {
+                    val fr = min(pr.right, pr.left + pr.width() * wprog / wm.target)
+                    D.gradientRect(c, pr.left, pr.top, fr, pr.bottom, 0xFFFFD166.toInt(), 0xFFE8A93C.toInt(), pr.height() / 2)
+                }
+                D.text(c, "$wprog/${wm.target}", D.dp(40f), y + wh - D.dp(26f), D.sp(12f), D.withAlpha(Color.WHITE, 200), Paint.Align.LEFT)
+            }
+            y += wh + D.dp(14f)
+
             val missions = Missions.today()
             for (m in missions) {
                 val prog = Missions.progress(m)
@@ -335,13 +398,70 @@ class MissionsScene : BaseScene() {
 // ============================ STATS ============================
 
 class StatsScene : BaseScene() {
+    private var scrollY = 0f
+    private var maxScroll = 0f
+    private var dragStart = 0f
+    private var scrollStart = 0f
+    private var dragging = false
+
     override fun onEnter() { makeBackButton() }
 
     override fun render(c: Canvas) {
         renderBackground(c)
         renderTopBar(c, s(R.string.menu_stats))
         val w = host.width.toFloat()
-        var y = host.safeTop + D.dp(84f)
+        val top = host.safeTop + D.dp(70f)
+        val cw = w - D.dp(48f)
+
+        c.save()
+        c.clipRect(0f, top - D.dp(8f), w, host.height.toFloat() - D.dp(12f))
+        c.translate(0f, scrollY)
+        var y = top
+
+        // section: top runs — best five classic scores
+        sectionHeader(c, s(R.string.stats_top_runs), y); y += D.dp(26f)
+        val runs = Save.topRuns("CLASSIC")
+        if (runs.isEmpty()) {
+            D.card(c, D.dp(24f), y, D.dp(24f) + cw, y + D.dp(44f), D.color(theme.boardBg), D.dp(15f))
+            D.text(c, s(R.string.stats_no_runs), D.dp(24f) + cw / 2f, y + D.dp(29f), D.sp(12f), D.withAlpha(D.color(theme.textPrimary), 160))
+            y += D.dp(54f)
+        } else {
+            val rankCol = intArrayOf(0xFFFFD166.toInt(), 0xFFB7BCC9.toInt(), 0xFFCD8E4F.toInt(), 0xFF5AC8FA.toInt(), 0xFF5AC8FA.toInt())
+            for (i in runs.indices) {
+                D.card(c, D.dp(24f), y, D.dp(24f) + cw, y + D.dp(40f), D.color(theme.boardBg), D.dp(13f))
+                D.circle(c, D.dp(24f) + D.dp(24f), y + D.dp(20f), D.dp(11f), D.withAlpha(rankCol[i], if (i == 0) 235 else 90))
+                D.text(c, "${i + 1}", D.dp(24f) + D.dp(24f), y + D.dp(24.5f), D.sp(11f), if (i == 0) 0xFF3A2404.toInt() else D.color(theme.textPrimary))
+                D.text(c, "${runs[i]}", D.dp(24f) + D.dp(46f), y + D.dp(26f), D.sp(15f), D.color(theme.textPrimary), Paint.Align.LEFT)
+                val gi = GameEngine.grade(Mode.CLASSIC, runs[i])
+                D.text(c, "${"SABC"[3 - gi]}", D.dp(24f) + cw - D.dp(20f), y + D.dp(26f), D.sp(14f), if (gi == 3) 0xFFFFD166.toInt() else D.withAlpha(D.color(theme.textPrimary), 170), Paint.Align.RIGHT)
+                y += D.dp(46f)
+            }
+        }
+
+        // section: 7-day score chart
+        y += D.dp(8f)
+        sectionHeader(c, s(R.string.stats_week_chart), y); y += D.dp(26f)
+        val days = Save.last7DayScores()
+        val chartH = D.dp(110f)
+        D.card(c, D.dp(24f), y, D.dp(24f) + cw, y + chartH, D.color(theme.boardBg), D.dp(15f))
+        val peak = days.max().coerceAtLeast(1)
+        val bw = (cw - D.dp(32f)) / 7f
+        for (i in 0..6) {
+            val v = days[i]
+            val bh = if (v > 0) (chartH - D.dp(38f)) * v / peak else D.dp(4f)
+            val bx = D.dp(24f) + D.dp(16f) + i * bw + bw * 0.18f
+            val bt = y + chartH - D.dp(22f) - bh
+            val hot = i == 6
+            D.gradientRect(c, bx, bt, bx + bw * 0.64f, y + chartH - D.dp(22f),
+                if (hot) D.lighten(D.color(theme.accent), 0.15f) else D.withAlpha(D.color(theme.accent), 200),
+                if (hot) D.darken(D.color(theme.accent), 0.12f) else D.withAlpha(D.darken(D.color(theme.accent), 0.2f), 200), D.dp(4f))
+            D.circle(c, bx + bw * 0.32f, y + chartH - D.dp(10f), D.dp(1.6f), D.withAlpha(D.color(theme.textPrimary), 110))
+            if (v > 0) D.text(c, "$v", bx + bw * 0.32f, bt - D.dp(4f), D.sp(8.5f), D.withAlpha(D.color(theme.textPrimary), 160))
+        }
+        y += chartH + D.dp(22f)
+
+        // section: lifetime numbers
+        sectionHeader(c, s(R.string.menu_stats), y); y += D.dp(26f)
         val rows = listOf(
             s(R.string.stats_games) to "${Save.gamesPlayed}",
             s(R.string.stats_best_classic) to "${Save.bestClassic}",
@@ -358,19 +478,38 @@ class StatsScene : BaseScene() {
             s(R.string.stats_shards) to "${Save.shards}/5",
             s(R.string.stats_play_time) to s(R.string.stats_minutes, Save.playSeconds / 60),
         )
-        val cw = w - D.dp(48f)
         for ((label, value) in rows) {
             D.card(c, D.dp(24f), y, D.dp(24f) + cw, y + D.dp(54f), D.color(theme.boardBg), D.dp(15f))
             D.textFit(c, label, D.dp(42f), y + D.dp(34f), D.sp(14f), cw - D.dp(140f), D.withAlpha(D.color(theme.textPrimary), 200), Paint.Align.LEFT, bold = false)
             D.textFit(c, value, D.dp(24f) + cw - D.dp(18f), y + D.dp(35f), D.sp(17f), cw - D.dp(140f), D.color(theme.accent), Paint.Align.RIGHT)
             y += D.dp(64f)
         }
+        c.restore()
+        // y is the content-space bottom; the last card must reach the bottom margin
+        maxScroll = min(0f, host.height.toFloat() - D.dp(24f) - y)
+        scrollY = scrollY.coerceIn(maxScroll, 0f)
+    }
+
+    private fun sectionHeader(c: Canvas, label: String, y: Float) {
+        D.labelText(c, label, D.dp(24f), y, D.sp(10f), D.color(theme.accent), Paint.Align.LEFT)
+        val end = D.dp(24f) + D.textWidth(label.uppercase(), D.sp(10f)) + label.length * D.sp(1.6f) + D.dp(10f)
+        if (end < host.width.toFloat() - D.dp(30f))
+            D.rect(c, end, y - D.sp(4f), host.width.toFloat() - D.dp(24f), y - D.sp(4f) + 1.2f, D.withAlpha(D.color(theme.textPrimary), 50), 0.6f)
     }
 
     override fun onTouch(e: MotionEvent): Boolean {
-        if (e.actionMasked != MotionEvent.ACTION_DOWN) return true
-        backButton?.let { if (it.contains(e.x, e.y)) { it.pressT = 1f; it.onTap(); Audio.play("click"); return true } }
-        coinPill?.let { if (it.contains(e.x, e.y)) { onCoinsTap(); return true } }
+        backButton?.let { if (e.actionMasked == MotionEvent.ACTION_DOWN && it.contains(e.x, e.y)) { it.pressT = 1f; it.onTap(); Audio.play("click"); return true } }
+        coinPill?.let { if (e.actionMasked == MotionEvent.ACTION_DOWN && it.contains(e.x, e.y)) { onCoinsTap(); return true } }
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { dragging = true; dragStart = e.y; scrollStart = scrollY }
+            MotionEvent.ACTION_MOVE -> {
+                if (dragging) {
+                    scrollY = (scrollStart + (e.y - dragStart)).coerceIn(maxScroll, 0f)
+                    host.wake()
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> dragging = false
+        }
         return true
     }
 }

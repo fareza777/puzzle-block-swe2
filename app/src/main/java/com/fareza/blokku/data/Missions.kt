@@ -31,6 +31,31 @@ object Missions {
         Template(MissionType.USE_POWERUPS, 1, 4, R.string.mission_use_powerups, 35),
     )
 
+    /** One long-horizon mission per week — bigger targets, bigger payout. */
+    private val weekPool = listOf(
+        Template(MissionType.LINES_TOTAL, 60, 140, R.string.mission_lines_total, 220),
+        Template(MissionType.CELLS_TOTAL, 300, 700, R.string.mission_cells_total, 220),
+        Template(MissionType.COMBO_ONCE, 4, 7, R.string.mission_combo_once, 280),
+        Template(MissionType.USE_POWERUPS, 6, 12, R.string.mission_use_powerups, 240),
+        Template(MissionType.PLAY_GAMES, 8, 16, R.string.mission_play_games, 200),
+        Template(MissionType.SCORE_GAME, 1500, 4000, R.string.mission_score_game, 300),
+    )
+
+    /** This week's mission (id "w"); rotates with the calendar week seed. */
+    fun thisWeek(): Mission {
+        val wk = Save.weekSeed().toLong()
+        if (Save.missionsJson.optLong("_week") != wk) {
+            Save.missionsJson.remove("w_p")
+            Save.missionsJson.remove("w_done")
+            Save.missionsJson.put("_week", wk)
+            Save.saveMissions()
+        }
+        val r = Random(wk * 31 + 5)
+        val t = weekPool[r.nextInt(weekPool.size)]
+        val target = t.min + r.nextInt(t.max - t.min + 1)
+        return Mission("w", t.type, target, t.rewardBase + target / 15, t.labelRes)
+    }
+
     fun today(): List<Mission> {
         val key = Daily.seedForToday()
         if (Save.missionDate() != key) {
@@ -61,9 +86,9 @@ object Missions {
         return m.reward
     }
 
-    /** Feed a game event into mission progress (accumulative types). */
+    /** Feed a game event into mission progress (daily set + weekly). */
     fun track(type: MissionType, amount: Int, engine: GameEngine? = null) {
-        for (m in today()) {
+        for (m in today() + thisWeek()) {
             if (m.type != type || done(m)) continue
             val cur = Save.missionProgress(m.id)
             val newV = when (type) {

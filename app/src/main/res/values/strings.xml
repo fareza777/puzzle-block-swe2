@@ -209,4 +209,20 @@
     <string name="stats_mono">Mono lines</string>
     <string name="grace_tip">Combo grace — one slip spared</string>
     <string name="powers_hint2">finish CONTRACTS for bonus coins\n×3 cells triple a line\'s score\nMONO: a line of one color pays extra\nSNUG: pack a piece tight for bonus</string>
+
+    <!-- v2.5 audit3: ghost record, grades, tiers, weekly content, stats -->
+    <string name="record_banner">NEW RECORD!</string>
+    <string name="record_to_go">-%1$d to beat</string>
+    <string name="last_stand">LAST STAND</string>
+    <string name="combo_tier1">NICE</string>
+    <string name="combo_tier2">GREAT</string>
+    <string name="combo_tier3">AMAZING</string>
+    <string name="combo_tier4">LEGENDARY</string>
+    <string name="continue_run_zen">Zen · Continue · %1$d</string>
+    <string name="weekly_tag">WEEKLY</string>
+    <string name="weekly_puzzle">Weekly Puzzle</string>
+    <string name="weekly_done">Done — back next week</string>
+    <string name="stats_top_runs">Top runs</string>
+    <string name="stats_no_runs">No runs yet</string>
+    <string name="stats_week_chart">Best score this week</string>
 </resources>

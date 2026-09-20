@@ -122,6 +122,12 @@ class GameScene(
     private var comboBannerN = 0
     private var feverBannerT = 0f
     private var perfectBannerT = 0f
+    private var recordBannerT = 0f
+    // ghost record: the personal best standing when this run started
+    private var recordTarget = 0
+    private var recordBroken = false
+    private var lastStandOn = false
+    private var feverWasOn = false
     private var meterFlash = 0f
     private var boardShake = 0f
     private var trayRects = arrayOfNulls<RectF>(3)
@@ -153,6 +159,13 @@ class GameScene(
         pauseBtn?.fg = D.color(theme.textPrimary)
         for (i in 0..2) trayPop[i] = -i * 0.12f // staggered pop-in
         if (engine.timeLimitSec > 0) timeLeft = engine.timeLimitSec.toFloat()
+        recordTarget = when (engine.mode) {
+            Mode.CLASSIC -> Save.bestClassic
+            Mode.ZEN -> Save.bestZen
+            Mode.RUSH -> Save.bestRush
+            Mode.DAILY -> Save.bestDailyScore
+            else -> 0
+        }
         refreshDanger()
         if (!Save.tutorialDone) {
             scene().push(TutorialScene())
@@ -165,6 +178,7 @@ class GameScene(
 
     override fun onExit() {
         Audio.setMusicMode(0)
+        Audio.setMusicTempo(1f)
         saveRun()
     }
 
@@ -225,10 +239,25 @@ class GameScene(
         boardShake = (boardShake - dt * 2.4f).coerceAtLeast(0f)
         feverBannerT = (feverBannerT - dt).coerceAtLeast(0f)
         perfectBannerT = (perfectBannerT - dt).coerceAtLeast(0f)
+        recordBannerT = (recordBannerT - dt).coerceAtLeast(0f)
         if (engine.feverT > 0f) {
             engine.feverT -= dt
             if (engine.feverT < 0f) engine.feverT = 0f
             host.wake()
+        }
+        // fever theatrics: in-game music runs ~12% faster while hot
+        val feverOn = engine.feverT > 0f
+        if (feverOn != feverWasOn) { feverWasOn = feverOn; Audio.setMusicTempo(if (feverOn) 1.12f else 1f) }
+        // Lucky Break indicator pulses while the board is nearly full
+        lastStandOn = engine.lastStand && !engine.gameOver
+        if (lastStandOn) host.wake()
+        // ghost record: crossing the old best mid-run fires a banner once
+        if (!recordBroken && recordTarget > 0 && engine.score > recordTarget) {
+            recordBroken = true
+            recordBannerT = 1.7f
+            Audio.play("win", 1.35f)
+            Haptic.big()
+            coinFx()
         }
 
         val it = cellAnim.entries.iterator()
@@ -360,7 +389,7 @@ class GameScene(
             comboBannerT > 0 || meterFlash > 0 || boardShake > 0 ||
             dragIndex >= 0 || retPiece != null || gameOverDelay > 0 || overlayAnim.let { !it.done && overlay != Overlay.NONE } ||
             enterAnim.t < enterAnim.duration || trayPop.any { it < 1f } ||
-            feverBannerT > 0 || perfectBannerT > 0 || engine.feverT > 0 ||
+            feverBannerT > 0 || perfectBannerT > 0 || recordBannerT > 0 || lastStandOn || engine.feverT > 0 ||
             hintT > 0 || dangerPulse > 0 || undoHeld || contractChipT > 0 ||
             (engine.timeLimitSec > 0 && overlay == Overlay.NONE && !engine.gameOver) ||
             (overlay == Overlay.LEVEL_COMPLETE && starAnimT < 2f)
@@ -524,7 +553,7 @@ class GameScene(
                 else -> Audio.play("clear1")
             }
             if (n >= 2) Haptic.big() else Haptic.success()
-            // particles at each cleared cell
+            // particles at each cleared cell (fever adds rising embers)
             for (cc in res.clearCells) {
                 val br = cc / 9; val bc = cc % 9
                 particles.burst(
@@ -532,6 +561,13 @@ class GameScene(
                     cellColor(preBoard?.get(cc) ?: 1), count = 4, speed = D.dp(180f), size = D.dp(8f),
                     life = 0.6f, gravity = D.dp(500f),
                 )
+                if (engine.feverT > 0f) {
+                    particles.burst(
+                        boardRect.left + (bc + 0.5f) * cell, boardRect.top + (br + 0.5f) * cell,
+                        0xFFFFB300.toInt(), count = 2, speed = D.dp(120f), size = D.dp(6f),
+                        life = 0.7f, gravity = -D.dp(160f),
+                    )
+                }
             }
             if (n >= 2) boardShake = maxOf(boardShake, 0.10f + n * 0.07f)
             // combo banner — pitch climbs with the combo level
@@ -539,6 +575,8 @@ class GameScene(
                 comboBannerN = res.comboCount
                 comboBannerT = 1.1f
                 Audio.play("combo", (1f + (res.comboCount - 1) * 0.08f).coerceAtMost(1.5f))
+                // bigger chains hit harder
+                if (res.comboCount >= 6) { boardShake = maxOf(boardShake, 0.22f); Haptic.big() }
             }
             addFloat(
                 boardRect.centerX(), boardRect.top + boardRect.height() * 0.4f,
@@ -644,9 +682,11 @@ class GameScene(
 
     /** Persist a resumable classic run; cleared when a classic round ends (daily/level runs never touch it). */
     private fun saveRun() {
-        if (engine.mode != Mode.CLASSIC) return
+        // endless-style runs persist so the menu can offer Continue
+        if (engine.mode != Mode.CLASSIC && engine.mode != Mode.ZEN) return
         if (!engine.gameOver && !engine.goalMet) {
-            Save.runJson = engine.toJson()
+            // an untouched board shouldn't clobber a real saved run
+            if (engine.score > 0 || engine.cellsPlaced > 0) Save.runJson = engine.toJson()
         } else {
             Save.clearSavedRun()
         }
@@ -678,9 +718,18 @@ class GameScene(
                         st
                     }
                     Mode.PUZZLE -> {
-                        val st = Puzzles.stars(engine)
-                        Save.setPuzzleStars(levelIndex, st)
-                        st
+                        if (levelIndex >= Puzzles.COUNT) {
+                            // weekly puzzle: no stars — one shard payout per week
+                            if (!Save.weeklyPuzzleDone()) {
+                                Save.weeklyPuzzleKey = Save.weekSeed()
+                                earnShard(2)
+                            }
+                            3
+                        } else {
+                            val st = Puzzles.stars(engine)
+                            Save.setPuzzleStars(levelIndex, st)
+                            st
+                        }
                     }
                     else -> 3
                 }
@@ -722,7 +771,9 @@ class GameScene(
         if (engine.mode == Mode.CLASSIC && engine.score > Save.bestClassic) Save.bestClassic = engine.score
         if (engine.mode == Mode.RUSH && engine.score > Save.bestRush) Save.bestRush = engine.score
         if (engine.mode == Mode.ZEN && engine.score > Save.bestZen) Save.bestZen = engine.score
+        if (engine.mode == Mode.DAILY && engine.score > Save.bestDailyScore) Save.bestDailyScore = engine.score
         Save.playSeconds += (System.currentTimeMillis() - sessionStart) / 1000
+        Save.recordRun(engine.mode.name, engine.score)
         Missions.track(MissionType.PLAY_GAMES, 1)
         Missions.track(MissionType.SCORE_GAME, engine.score)
         celebrateAchievements()
@@ -749,7 +800,14 @@ class GameScene(
             }
             D.text(cv, "BLOKKU", S / 2f, S * 0.34f, 130f, Color.WHITE)
             D.text(cv, "${engine.score}", S / 2f, S * 0.52f, 200f, D.color(th.accent))
-            D.labelText(cv, s(R.string.score), S / 2f, S * 0.60f, 40f, D.withAlpha(D.color(th.textPrimary), 180))
+            // run grade — a letter the score earned
+            val gr = "SABC"[3 - GameEngine.grade(engine.mode, engine.score)].toString()
+            val gcol = when (gr) { "S" -> 0xFFFFD166.toInt(); "A" -> 0xFF62D97B.toInt(); "B" -> 0xFF5AC8FA.toInt(); else -> 0xFFB7BCC9.toInt() }
+            D.glowCircle(cv, S / 2f, S * 0.645f, 120f, gcol, 90)
+            D.circle(cv, S / 2f, S * 0.645f, 74f, D.withAlpha(gcol, 40))
+            D.rectStroke(cv, S / 2f - 74f, S * 0.645f - 74f, S / 2f + 74f, S * 0.645f + 74f, D.withAlpha(gcol, 200), 5f, 74f)
+            D.text(cv, gr, S / 2f, S * 0.645f + 42f, 120f, gcol)
+            D.labelText(cv, s(R.string.score), S / 2f, S * 0.60f + 30f, 40f, D.withAlpha(D.color(th.textPrimary), 180))
             D.text(cv, "${s(R.string.stats_lines)}: ${engine.linesCleared}   ${s(R.string.stats_max_combo)}: ×${engine.bestCombo}", S / 2f, S * 0.72f, 52f, D.color(th.textPrimary), bold = false)
             // brand footer
             D.rectStroke(cv, S * 0.3f, S * 0.84f, S * 0.7f, S * 0.84f + 4, D.withAlpha(D.color(th.accent), 200), 2f, 2f)
@@ -911,8 +969,27 @@ class GameScene(
         c.restore()
         renderComboBanner(c)
         renderBigBanner(c)
+        renderLastStandChip(c)
+        // fever theatrics — warm wash over the whole scene while ×2 burns
+        if (engine.feverT > 0f) {
+            val fp = (0.5f + 0.5f * kotlin.math.sin(host.globalTime * 7f)) * min(1f, engine.feverT)
+            D.rect(c, 0f, 0f, host.width.toFloat(), host.height.toFloat(), D.withAlpha(0xFFFF8A3C.toInt(), (26 * fp + 14).toInt()))
+        }
         if (overlay != Overlay.NONE) renderOverlay(c)
         renderFx(c) // floats/particles on top of the dim so celebrations read
+    }
+
+    /** Lucky Break chip — pulsing tag on the board's top-left corner while the
+     *  board is ≥80% full and the pity bonuses are active. */
+    private fun renderLastStandChip(c: Canvas) {
+        if (!lastStandOn || overlay != Overlay.NONE) return
+        val pulse = 0.65f + 0.35f * kotlin.math.sin(host.globalTime * 8f)
+        val label = s(R.string.last_stand)
+        val tw = D.textWidth(label, D.sp(10.5f)) + D.dp(16f)
+        val px = boardRect.left + D.dp(10f); val py = boardRect.top - D.dp(13f)
+        D.rect(c, px, py + D.dp(2f), px + tw, py + D.dp(26f) + D.dp(2f), D.withAlpha(Color.BLACK, 90), D.dp(13f))
+        D.gradientRect(c, px, py, px + tw, py + D.dp(26f), D.withAlpha(0xFFFF5D73.toInt(), (235 * pulse).toInt()), D.withAlpha(0xFFC23A4F.toInt(), (255 * pulse).toInt()), D.dp(13f))
+        D.text(c, label, px + tw / 2f, py + D.dp(18f), D.sp(10.5f), Color.WHITE)
     }
 
     /** Countdown chip drawn over the board's top-right corner on timed levels. */
@@ -947,16 +1024,30 @@ class GameScene(
         pauseBtn?.render(c)
         // score block: small caps label over big number
         D.labelText(c, s(if (engine.mode == Mode.ZEN) R.string.flow_label else R.string.score), w / 2f, hudTop - D.sp(4f), D.sp(10f), D.withAlpha(D.color(theme.textPrimary), 160))
-        D.text(c, "${engine.score}", w / 2f, hudTop + D.sp(22f), D.sp(30f), D.color(theme.textPrimary))
+        D.text(c, "${engine.score}", w / 2f, hudTop + D.sp(22f), D.sp(30f), if (recordBroken) 0xFFFFD166.toInt() else D.color(theme.textPrimary))
+        // ghost record broken — a small gold star crowns the score
+        if (recordBroken) {
+            val sw2 = D.textWidth("${engine.score}", D.sp(30f))
+            Glyph.draw(c, "star", RectF(w / 2f + sw2 / 2f + D.dp(6f), hudTop + D.sp(12f), w / 2f + sw2 / 2f + D.dp(6f) + D.sp(14f), hudTop + D.sp(12f) + D.sp(14f)), 0xFFFFD166.toInt())
+        }
         val sub = when (engine.mode) {
-            Mode.CLASSIC -> "${s(R.string.best)} ${max(Save.bestClassic, engine.score)}"
+            // ghost record: live "N to beat" countdown turns the score into a chase
+            Mode.CLASSIC -> if (recordTarget > 0 && !recordBroken && engine.score < recordTarget)
+                "${s(R.string.best)} $recordTarget • ${s(R.string.record_to_go, recordTarget - engine.score)}"
+            else "${s(R.string.best)} ${max(Save.bestClassic, engine.score)}"
             Mode.LEVEL -> if (engine.timeLimitSec > 0)
                 "${s(R.string.level)} ${levelIndex + 1} • ${s(R.string.timed_badge)} • ${goalLabel()}"
             else "${s(R.string.level)} ${levelIndex + 1} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
             Mode.DAILY -> "${s(R.string.menu_daily)}${dailyModLabel()} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
-            Mode.ZEN -> "${s(R.string.zen_sub)} • ${s(R.string.best)} ${max(Save.bestZen, engine.score)}"
-            Mode.RUSH -> "${s(R.string.rush_sub)} • ${s(R.string.best)} ${max(Save.bestRush, engine.score)}"
-            Mode.PUZZLE -> "${s(R.string.menu_puzzle)} ${levelIndex + 1} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
+            Mode.ZEN -> if (recordTarget > 0 && !recordBroken && engine.score < recordTarget)
+                "${s(R.string.zen_sub)} • ${s(R.string.record_to_go, recordTarget - engine.score)}"
+            else "${s(R.string.zen_sub)} • ${s(R.string.best)} ${max(Save.bestZen, engine.score)}"
+            Mode.RUSH -> if (recordTarget > 0 && !recordBroken && engine.score < recordTarget)
+                "${s(R.string.rush_sub)} • ${s(R.string.record_to_go, recordTarget - engine.score)}"
+            else "${s(R.string.rush_sub)} • ${s(R.string.best)} ${max(Save.bestRush, engine.score)}"
+            Mode.PUZZLE -> if (levelIndex >= Puzzles.COUNT)
+                "${s(R.string.weekly_puzzle)} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
+            else "${s(R.string.menu_puzzle)} ${levelIndex + 1} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
         }
         D.textFit(c, sub, w / 2f, hudTop + D.sp(22f) + D.sp(15f), D.sp(11f), w - D.dp(150f), D.withAlpha(D.color(theme.textPrimary), 190), bold = false)
         if (coinPill == null) coinPill = com.fareza.blokku.ui.CoinPill(w - D.dp(106f), hudTop - D.dp(4f)) { onCoinsTap() }
@@ -1408,6 +1499,14 @@ class GameScene(
             D.textFit(c, s(R.string.perfect_banner), w / 2f, boardRect.top + boardRect.height() * 0.56f, D.sp(30f), w - D.dp(48f), 0xFFFFD75E.toInt(), alpha = (255 * alpha).toInt())
             c.restore()
         }
+        if (recordBannerT > 0f) {
+            val appear = ((1.7f - recordBannerT) / 0.3f).coerceIn(0f, 1f)
+            val alpha = (recordBannerT / 0.5f).coerceIn(0f, 1f)
+            c.save()
+            c.scale(Ease.outBack(appear), Ease.outBack(appear), w / 2f, boardRect.top + boardRect.height() * 0.42f)
+            D.textFit(c, s(R.string.record_banner), w / 2f, boardRect.top + boardRect.height() * 0.42f, D.sp(26f), w - D.dp(48f), 0xFFFFD166.toInt(), alpha = (255 * alpha).toInt())
+            c.restore()
+        }
     }
 
     private fun renderComboBanner(c: Canvas) {
@@ -1417,11 +1516,18 @@ class GameScene(
         val alpha = ((t / 0.4f).coerceIn(0f, 1f))
         val scale = Ease.outBack(appear)
         val w = host.width.toFloat()
+        // combo tiers: the banner names the streak and heats up per tier
+        val (nameRes, tcol, bump) = when {
+            comboBannerN >= 8 -> Triple(R.string.combo_tier4, 0xFFFFD166.toInt(), 8f)
+            comboBannerN >= 6 -> Triple(R.string.combo_tier3, 0xFFFF5D73.toInt(), 5f)
+            comboBannerN >= 4 -> Triple(R.string.combo_tier2, 0xFFFF8A3C.toInt(), 2f)
+            else -> Triple(R.string.combo_tier1, accent(), 0f)
+        }
         c.save()
         c.scale(scale, scale, w / 2f, boardRect.top + boardRect.height() * 0.45f)
-        D.text(
-            c, "COMBO ×$comboBannerN", w / 2f, boardRect.top + boardRect.height() * 0.45f,
-            D.sp(34f), D.color(theme.accent), alpha = (255 * alpha).toInt(),
+        D.textFit(
+            c, "${s(nameRes)} ×$comboBannerN", w / 2f, boardRect.top + boardRect.height() * 0.45f,
+            D.sp(34f + bump), w - D.dp(40f), tcol, alpha = (255 * alpha).toInt(),
         )
         c.restore()
     }
@@ -1563,6 +1669,20 @@ class GameScene(
             D.text(c, s(R.string.new_best), cx, dialogRect.top + D.dp(65f), D.sp(13f), 0xFFFFD166.toInt())
         }
         D.text(c, "${engine.score}", cx, dialogRect.top + D.dp(104f), D.sp(42f), D.color(theme.textPrimary))
+        // run grade — S/A/B/C chip floating beside the score
+        if (engine.mode == Mode.CLASSIC || engine.mode == Mode.ZEN || engine.mode == Mode.RUSH || engine.mode == Mode.DAILY) {
+            val gi = GameEngine.grade(engine.mode, engine.score)
+            val gcol = when (gi) { 3 -> 0xFFFFD166.toInt(); 2 -> 0xFF62D97B.toInt(); 1 -> 0xFF5AC8FA.toInt(); else -> 0xFFB7BCC9.toInt() }
+            val scoreW = D.textWidth("${engine.score}", D.sp(42f))
+            val gx = cx + scoreW / 2f + D.dp(34f); val gy = dialogRect.top + D.dp(90f); val gr2 = D.dp(19f)
+            val pop = Ease.outBack(overlayAnim.raw)
+            c.save(); c.scale(pop, pop, gx, gy)
+            D.glowCircle(c, gx, gy, gr2 * 1.9f, gcol, 70)
+            D.circle(c, gx, gy, gr2, D.withAlpha(D.darken(gcol, 0.15f), 235))
+            D.rectStroke(c, gx - gr2 + 1.5f, gy - gr2 + 1.5f, gx + gr2 - 1.5f, gy + gr2 - 1.5f, D.withAlpha(Color.WHITE, 200), 2f, gr2)
+            D.text(c, "SABC"[3 - gi].toString(), gx, gy + D.sp(7f), D.sp(19f), Color.WHITE)
+            c.restore()
+        }
         // stat row: lines / combo / best
         val sy = dialogRect.top + D.dp(136f)
         val stats = arrayOf(
@@ -1672,7 +1792,8 @@ class GameScene(
             Mode.DAILY -> GameScene(Daily.todayEngine(), dailySeed = dailySeed)
             Mode.ZEN -> GameScene(GameEngine.zen())
             Mode.RUSH -> GameScene(GameEngine.rush())
-            Mode.PUZZLE -> GameScene(GameEngine.puzzle(Puzzles.get(levelIndex)), levelIndex)
+            Mode.PUZZLE -> GameScene(GameEngine.puzzle(
+                if (levelIndex >= Puzzles.COUNT) Puzzles.weeklyDef(Save.weekSeed()) else Puzzles.get(levelIndex)), levelIndex)
         }
         scene().swapTo(fresh)
         Ads.maybeInterstitial(host.context)
