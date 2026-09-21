@@ -10,6 +10,7 @@ import com.fareza.blokku.ads.Ads
 import com.fareza.blokku.audio.Audio
 import com.fareza.blokku.audio.Haptic
 import com.fareza.blokku.core.Board
+import com.fareza.blokku.core.Campaign
 import com.fareza.blokku.core.Daily
 import com.fareza.blokku.core.GameEngine
 import com.fareza.blokku.core.GoalType
@@ -47,6 +48,11 @@ class GameScene(
     /** Boss fight phase count (-1 = use engine's). */
     val bossArg: Int = 0,
 ) : BaseScene() {
+
+    companion object {
+        /** Modes that chase endless scores — the only ones that keep top-5 runs & pace ghosts. */
+        private val SCORE_MODES = setOf(Mode.CLASSIC, Mode.ZEN, Mode.RUSH, Mode.DAILY, Mode.GRAVITY, Mode.AVALANCHE, Mode.MERGE, Mode.EXPEDITION, Mode.GAMBIT)
+    }
 
     // ---- layout ----
     private var boardRect = RectF()
@@ -196,8 +202,8 @@ class GameScene(
                 Save.topRuns(engine.mode.name).firstOrNull() ?: 0
             else -> 0
         }
-        // Ghost Rivals — the score curve of the current #1 run for this mode
-        ghostCurve = Save.topCurve(engine.mode.name, 0)
+        // Ghost Rivals — pace ghost only makes sense in endless score modes
+        ghostCurve = if (engine.mode in SCORE_MODES) Save.topCurve(engine.mode.name, 0) else null
         ghostPassT = 0f
         if (engine.mode == Mode.VERSUS) {
             bot = GameEngine.classic(Random(4242 + System.currentTimeMillis() % 10000))
@@ -234,6 +240,9 @@ class GameScene(
         boardRect = host.boardArea()
         // shift board down a bit for goal/moves line in level modes
         if (engine.mode != Mode.CLASSIC) boardRect.offset(0f, D.dp(22f))
+        // versus reserves a strip on the right for the rival PiP — it must never
+        // cover the player's own cells (dragged pieces need a visible target)
+        if (engine.mode == Mode.VERSUS) boardRect.right -= D.dp(72f)
         cell = boardRect.width() / 9f
 
         val powerSize = D.dp(46f)
@@ -930,7 +939,8 @@ class GameScene(
         if (engine.mode == Mode.ZEN && engine.score > Save.bestZen) Save.bestZen = engine.score
         if (engine.mode == Mode.DAILY && engine.score > Save.bestDailyScore) Save.bestDailyScore = engine.score
         Save.playSeconds += (System.currentTimeMillis() - sessionStart) / 1000
-        Save.recordRun(engine.mode.name, engine.score, engine.scoreCurve)
+        if (engine.mode in SCORE_MODES) Save.recordRun(engine.mode.name, engine.score, engine.scoreCurve)
+        else Save.recordDayScore(engine.score) // goal modes still feed the daily activity chart, just not the top-5/ghost records
         Missions.track(MissionType.PLAY_GAMES, 1)
         Missions.track(MissionType.SCORE_GAME, engine.score)
         celebrateAchievements()
@@ -1256,16 +1266,17 @@ class GameScene(
         D.text(c, label, px + D.dp(16f) + (tw - D.dp(16f)) / 2f, py + D.dp(10.5f), D.sp(9.5f), col)
     }
 
-    /** Versus: live view of the AI opponent's board, floating inside the
-     *  board's top-right corner (PiP — drawn after the board). */
+    /** Versus: live view of the AI opponent's board in the reserved right
+     *  strip (PiP — drawn after the board). */
     private fun renderBotBoard(c: Canvas) {
         val b = bot ?: return
         if (overlay != Overlay.NONE) return
         val bs = D.dp(56f)
         val labH = D.dp(12f)
-        botRect = RectF(boardRect.right - bs - D.dp(6f), boardRect.top + D.dp(6f), boardRect.right - D.dp(6f), boardRect.top + D.dp(6f) + labH + bs)
-        D.card(c, botRect.left - D.dp(3f), botRect.top - D.dp(3f), botRect.right + D.dp(3f), botRect.bottom + D.dp(3f), D.withAlpha(D.color(theme.boardBg), 232), D.dp(8f), elevated = false)
-        D.labelText(c, s(R.string.vs_bot_label) + "  " + b.score, botRect.centerX(), botRect.top + labH - D.dp(2f), D.sp(7.5f), D.withAlpha(0xFFFF5D73.toInt(), 230))
+        // parked in the reserved strip right of the board — no cell occlusion
+        botRect = RectF(boardRect.right + D.dp(8f), boardRect.top + D.dp(10f), boardRect.right + D.dp(8f) + bs, boardRect.top + D.dp(10f) + labH + bs)
+        D.card(c, botRect.left - D.dp(4f), botRect.top - D.dp(4f), botRect.right + D.dp(4f), botRect.bottom + D.dp(4f), D.withAlpha(D.color(theme.boardBg), 235), D.dp(10f), elevated = false)
+        D.labelText(c, s(R.string.vs_bot_label) + " " + b.score, botRect.centerX(), botRect.top + labH - D.dp(2f), D.sp(7.5f), D.withAlpha(0xFFFF5D73.toInt(), 230))
         val cell2 = bs / 9f
         val gy = botRect.top + labH
         for (r in 0 until 9) for (cc in 0 until 9) {
@@ -2126,7 +2137,13 @@ class GameScene(
     private fun restart() {
         commitStats()
         Save.clearSavedRun()
-        val fresh = when (engine.mode) {
+        val fresh = if (campaignNode >= 0) {
+            // campaign nodes carry a configured goal — rebuild through the campaign map
+            // so a retry keeps the node's rules (score target, boss phases, …)
+            GameScene(Campaign.buildEngine(campaignNode), campaignNode = campaignNode,
+                mosaicIndex = if (Campaign.NODES[campaignNode].type == Campaign.NodeType.MOSAIC) Campaign.NODES[campaignNode].arg else -1,
+                bossArg = if (Campaign.NODES[campaignNode].type == Campaign.NodeType.BOSS) Campaign.NODES[campaignNode].arg else 0)
+        } else when (engine.mode) {
             Mode.CLASSIC -> GameScene(GameEngine.classic())
             Mode.LEVEL -> GameScene(GameEngine.level(Levels.get(levelIndex)), levelIndex)
             Mode.DAILY -> GameScene(Daily.todayEngine(), dailySeed = dailySeed)
@@ -2134,14 +2151,14 @@ class GameScene(
             Mode.RUSH -> GameScene(GameEngine.rush())
             Mode.PUZZLE -> GameScene(GameEngine.puzzle(
                 if (levelIndex >= Puzzles.COUNT) Puzzles.weeklyDef(Save.weekSeed()) else Puzzles.get(levelIndex)), levelIndex)
-            Mode.GRAVITY -> GameScene(GameEngine.gravity(), campaignNode = campaignNode)
-            Mode.AVALANCHE -> GameScene(GameEngine.avalanche(), campaignNode = campaignNode)
-            Mode.MERGE -> GameScene(GameEngine.merge(), campaignNode = campaignNode)
-            Mode.EXPEDITION -> GameScene(GameEngine.expedition(), campaignNode = campaignNode)
-            Mode.GAMBIT -> GameScene(GameEngine.gambit(), campaignNode = campaignNode)
-            Mode.VERSUS -> GameScene(GameEngine.versus(), campaignNode = campaignNode)
-            Mode.BOSS -> GameScene(GameEngine.boss(if (bossArg > 0) bossArg else 3), campaignNode = campaignNode, bossArg = bossArg)
-            Mode.MOSAIC -> GameScene(GameEngine.mosaic(if (mosaicIndex >= 0) mosaicIndex else 0), campaignNode = campaignNode, mosaicIndex = mosaicIndex)
+            Mode.GRAVITY -> GameScene(GameEngine.gravity())
+            Mode.AVALANCHE -> GameScene(GameEngine.avalanche())
+            Mode.MERGE -> GameScene(GameEngine.merge())
+            Mode.EXPEDITION -> GameScene(GameEngine.expedition())
+            Mode.GAMBIT -> GameScene(GameEngine.gambit())
+            Mode.VERSUS -> GameScene(GameEngine.versus())
+            Mode.BOSS -> GameScene(GameEngine.boss(if (bossArg > 0) bossArg else 3), bossArg = bossArg)
+            Mode.MOSAIC -> GameScene(GameEngine.mosaic(if (mosaicIndex >= 0) mosaicIndex else 0), mosaicIndex = mosaicIndex)
         }
         scene().swapTo(fresh)
         Ads.maybeInterstitial(host.context)

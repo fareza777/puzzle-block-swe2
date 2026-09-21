@@ -48,7 +48,10 @@ class ModeSelectScene : BaseScene() {
         val gap = D.dp(12f)
         val cw = (w - D.dp(40f) - gap) / 2f
         val ch = D.dp(96f)
-        var top = host.safeTop + D.dp(70f)
+        // centre hero + grid vertically so the screen feels composed, not top-heavy
+        val totalH = D.dp(86f) + gap + 4 * ch + 3 * gap
+        val startTop = host.safeTop + D.dp(70f)
+        var top = startTop + ((host.height - startTop - D.dp(18f) - totalH) / 2f).coerceAtLeast(0f)
 
         // campaign hero card spanning the full width
         val heroR = RectF(D.dp(20f), top, w - D.dp(20f), top + D.dp(86f))
@@ -236,7 +239,8 @@ class CampaignScene : BaseScene() {
             }
         }
         c.restore()
-        maxScroll = min(0f, scrollableH - pathH)
+        // extra headroom so the active node's label can scroll fully above the nav bar
+        maxScroll = min(0f, scrollableH - pathH - D.dp(80f))
     }
 
     override fun onTouch(e: MotionEvent): Boolean {
@@ -290,14 +294,20 @@ class MosaicSelectScene : BaseScene() {
         val cols = 3
         val gap = D.dp(12f)
         val cw = (w - D.dp(40f) - gap * (cols - 1)) / cols
-        var top = host.safeTop + D.dp(72f)
-        D.textFit(c, s(R.string.mosaic_intro), w / 2f, top - D.dp(10f), D.sp(11f), w - D.dp(48f), D.withAlpha(D.color(theme.textPrimary), 160), bold = false)
+        val ch = cw * 0.8f
+        val rows = (Mosaics.COUNT + cols - 1) / cols
+        val gridH = rows * ch + (rows - 1) * gap
+        // centre the gallery vertically so the screen doesn't feel half-empty
+        val introTop = host.safeTop + D.dp(72f)
+        val avail = host.height - introTop - D.dp(20f)
+        val top = introTop + ((avail - gridH) / 2f).coerceAtLeast(0f)
+        D.textFit(c, s(R.string.mosaic_intro), w / 2f, introTop - D.dp(10f), D.sp(11f), w - D.dp(48f), D.withAlpha(D.color(theme.textPrimary), 160), bold = false)
 
         for (i in 0 until Mosaics.COUNT) {
             val col = i % cols; val row = i / cols
             val l = D.dp(20f) + col * (cw + gap)
-            val t = top + row * (cw * 0.72f + gap) + row * 0f
-            val r = RectF(l, t, l + cw, t + cw * 0.72f)
+            val t = top + row * (ch + gap)
+            val r = RectF(l, t, l + cw, t + ch)
             cellRects.add(r to i)
             val done = Save.mosaicIsDone(i)
             D.card(c, r.left, r.top, r.right, r.bottom, D.color(theme.boardBg), D.dp(14f), elevated = !done)

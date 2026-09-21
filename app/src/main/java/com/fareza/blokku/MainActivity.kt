@@ -20,9 +20,17 @@ class MainActivity : Activity() {
 
     private lateinit var gameView: GameView
 
+    override fun attachBaseContext(newBase: android.content.Context) {
+        // apply the saved language before the activity context is built — a cold
+        // start otherwise falls back to the device locale despite Save.language
+        val lang = newBase.getSharedPreferences("blokku_save", MODE_PRIVATE).getString("lang", "en") ?: "en"
+        val config = android.content.res.Configuration(newBase.resources.configuration)
+        config.setLocale(Locale(lang))
+        super.attachBaseContext(newBase.createConfigurationContext(config))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         Save.init(this)
-        applyLanguage()
         installSplashScreen()
         super.onCreate(savedInstanceState)
 
@@ -40,16 +48,6 @@ class MainActivity : Activity() {
             Ads.init(this)
             Billing.init(this)
         }, 1500)
-    }
-
-    private fun applyLanguage() {
-        val lang = Save.language
-        if (lang.isEmpty()) return
-        val locale = Locale(lang)
-        Locale.setDefault(locale)
-        val config = resources.configuration
-        config.setLocale(locale)
-        resources.updateConfiguration(config, resources.displayMetrics)
     }
 
     private fun hideSystemUi() {
