@@ -19,6 +19,10 @@ class Board(val size: Int = 9) {
     /** Stone cells (Puzzle mode) — marks on filled cells; clearing them is the goal. */
     val stones = BooleanArray(size * size)
 
+    /** Merge mode: numbered cells (2,4,8…). 0 = no number. Adjacent equal
+     *  numbers merge upward after each placement; lines still clear them. */
+    val nums = IntArray(size * size)
+
     fun at(r: Int, c: Int) = cells[r * size + c]
 
     fun isEmpty(r: Int, c: Int) = cells[r * size + c] == 0
@@ -125,7 +129,7 @@ class Board(val size: Int = 9) {
     }
 
     fun applyClear(indices: IntArray) {
-        for (i in indices) { cells[i] = 0; gems[i] = false; bombs[i] = false; mults[i] = false; stones[i] = false }
+        for (i in indices) { cells[i] = 0; gems[i] = false; bombs[i] = false; mults[i] = false; stones[i] = false; nums[i] = 0 }
     }
 
     fun clearArea(row: Int, col: Int, radius: Int): IntArray {
@@ -134,7 +138,7 @@ class Board(val size: Int = 9) {
             for (c in (col - radius)..(col + radius)) {
                 if (r in 0 until size && c in 0 until size) {
                     val i = r * size + c
-                    if (cells[i] != 0) { cells[i] = 0; gems[i] = false; bombs[i] = false; mults[i] = false; stones[i] = false; removed.add(i) }
+                    if (cells[i] != 0) { cells[i] = 0; gems[i] = false; bombs[i] = false; mults[i] = false; stones[i] = false; nums[i] = 0; removed.add(i) }
                 }
             }
         }
@@ -154,7 +158,62 @@ class Board(val size: Int = 9) {
         bombs.copyInto(b.bombs)
         mults.copyInto(b.mults)
         stones.copyInto(b.stones)
+        nums.copyInto(b.nums)
         return b
+    }
+
+    /**
+     * Gravity mode: slide every column's cells down to fill the gaps.
+     * Specials travel with their cell. Returns true when anything moved.
+     */
+    fun settle(): Boolean {
+        var moved = false
+        for (c in 0 until size) {
+            var write = size - 1
+            for (r in size - 1 downTo 0) {
+                val i = r * size + c
+                if (cells[i] == 0) continue
+                if (write != r) {
+                    val j = write * size + c
+                    cells[j] = cells[i]; cells[i] = 0
+                    gems[j] = gems[i]; gems[i] = false
+                    bombs[j] = bombs[i]; bombs[i] = false
+                    mults[j] = mults[i]; mults[i] = false
+                    stones[j] = stones[i]; stones[i] = false
+                    nums[j] = nums[i]; nums[i] = 0
+                    moved = true
+                }
+                write--
+            }
+        }
+        return moved
+    }
+
+    /**
+     * Avalanche/Versus: push every row up one and insert a junk row at the
+     * bottom. [fill] marks which columns get a cell (colorIndex used for all).
+     * Returns false when occupied cells were pushed off the top (= topped out).
+     */
+    fun pushJunkRow(fill: BooleanArray, colorIndex: Int): Boolean {
+        var topOut = false
+        for (c in 0 until size) if (cells[c] != 0) topOut = true
+        for (r in 1 until size) {
+            val src = r * size; val dst = (r - 1) * size
+            for (c in 0 until size) {
+                cells[dst + c] = cells[src + c]
+                gems[dst + c] = gems[src + c]
+                bombs[dst + c] = bombs[src + c]
+                mults[dst + c] = mults[src + c]
+                stones[dst + c] = stones[src + c]
+                nums[dst + c] = nums[src + c]
+            }
+        }
+        for (c in 0 until size) {
+            val i = (size - 1) * size + c
+            cells[i] = if (fill[c]) colorIndex else 0
+            gems[i] = false; bombs[i] = false; mults[i] = false; stones[i] = false; nums[i] = 0
+        }
+        return !topOut
     }
 
     fun stoneCount(): Int {

@@ -502,6 +502,110 @@ object Glyph {
                 c.drawCircle(cx, cy - s * 0.52f, s * 0.2f, D.p)
                 c.drawCircle(cx + s * 0.66f, cy + s * 0.08f, s * 0.2f, D.p)
             }
+            "ghost" -> { // ghost rival — wavy-bottom blob with eyes
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.FILL
+                val p = android.graphics.Path()
+                p.moveTo(cx - s * 0.6f, cy + s * 0.55f)
+                p.lineTo(cx - s * 0.6f, cy - s * 0.05f)
+                p.quadTo(cx - s * 0.6f, cy - s * 0.7f, cx, cy - s * 0.7f)
+                p.quadTo(cx + s * 0.6f, cy - s * 0.7f, cx + s * 0.6f, cy - s * 0.05f)
+                p.lineTo(cx + s * 0.6f, cy + s * 0.55f)
+                // scalloped hem
+                p.lineTo(cx + s * 0.3f, cy + s * 0.32f)
+                p.lineTo(cx, cy + s * 0.55f)
+                p.lineTo(cx - s * 0.3f, cy + s * 0.32f)
+                p.close()
+                c.drawPath(p, D.p)
+                D.circle(c, cx - s * 0.2f, cy - s * 0.18f, s * 0.1f, D.color(0xFF201430))
+                D.circle(c, cx + s * 0.2f, cy - s * 0.18f, s * 0.1f, D.color(0xFF201430))
+            }
+            "swords" -> { // crossed swords — two diagonal blades
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.STROKE
+                D.p.strokeWidth = s * 0.2f
+                D.p.strokeCap = android.graphics.Paint.Cap.ROUND
+                c.drawLine(cx - s * 0.55f, cy - s * 0.55f, cx + s * 0.45f, cy + s * 0.45f, D.p)
+                c.drawLine(cx + s * 0.55f, cy - s * 0.55f, cx - s * 0.45f, cy + s * 0.45f, D.p)
+                D.p.strokeWidth = s * 0.34f
+                c.drawLine(cx - s * 0.55f, cy + s * 0.55f, cx - s * 0.2f, cy + s * 0.2f, D.p)
+                c.drawLine(cx + s * 0.55f, cy + s * 0.55f, cx + s * 0.2f, cy + s * 0.2f, D.p)
+                D.p.style = android.graphics.Paint.Style.FILL
+                D.p.strokeCap = android.graphics.Paint.Cap.BUTT
+            }
+            "skull" -> { // boss skull — round head + jaw
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.FILL
+                c.drawCircle(cx, cy - s * 0.1f, s * 0.58f, D.p)
+                D.rect(c, cx - s * 0.34f, cy + s * 0.2f, cx + s * 0.34f, cy + s * 0.62f, color, s * 0.06f)
+                D.circle(c, cx - s * 0.22f, cy - s * 0.12f, s * 0.14f, D.color(0xFF201430))
+                D.circle(c, cx + s * 0.22f, cy - s * 0.12f, s * 0.14f, D.color(0xFF201430))
+                // teeth
+                D.rect(c, cx - s * 0.24f, cy + s * 0.42f, cx - s * 0.08f, cy + s * 0.6f, D.color(0xFF201430), 0f)
+                D.rect(c, cx + s * 0.08f, cy + s * 0.42f, cx + s * 0.24f, cy + s * 0.6f, D.color(0xFF201430), 0f)
+            }
+            "warn" -> { // avalanche warning triangle
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.FILL
+                val p = android.graphics.Path()
+                p.moveTo(cx, cy - s * 0.62f)
+                p.lineTo(cx + s * 0.62f, cy + s * 0.5f)
+                p.lineTo(cx - s * 0.62f, cy + s * 0.5f)
+                p.close()
+                c.drawPath(p, D.p)
+                D.rect(c, cx - s * 0.07f, cy - s * 0.22f, cx + s * 0.07f, cy + s * 0.2f, D.color(0xFF201430), s * 0.03f)
+                D.circle(c, cx, cy + s * 0.34f, s * 0.08f, D.color(0xFF201430))
+            }
+            "merge" -> { // two arrows collapsing into one
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.STROKE
+                D.p.strokeWidth = s * 0.18f
+                D.p.strokeCap = android.graphics.Paint.Cap.ROUND
+                c.drawLine(cx - s * 0.6f, cy - s * 0.55f, cx - s * 0.1f, cy - s * 0.05f, D.p)
+                c.drawLine(cx + s * 0.6f, cy - s * 0.55f, cx + s * 0.1f, cy - s * 0.05f, D.p)
+                c.drawLine(cx, cy - s * 0.05f, cx, cy + s * 0.55f, D.p)
+                // arrowhead
+                c.drawLine(cx - s * 0.26f, cy + s * 0.28f, cx, cy + s * 0.55f, D.p)
+                c.drawLine(cx, cy + s * 0.55f, cx + s * 0.26f, cy + s * 0.28f, D.p)
+                D.p.style = android.graphics.Paint.Style.FILL
+                D.p.strokeCap = android.graphics.Paint.Cap.BUTT
+            }
+            "drop" -> { // gravity droplet
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.FILL
+                val p = android.graphics.Path()
+                p.moveTo(cx, cy - s * 0.65f)
+                p.quadTo(cx + s * 0.55f, cy + s * 0.1f, cx, cy + s * 0.62f)
+                p.quadTo(cx - s * 0.55f, cy + s * 0.1f, cx, cy - s * 0.65f)
+                c.drawPath(p, D.p)
+                D.circle(c, cx, cy + s * 0.22f, s * 0.16f, D.withAlpha(Color.WHITE, 120))
+            }
+            "image" -> { // mosaic — frame + mountain
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.STROKE
+                D.p.strokeWidth = s * 0.14f
+                c.drawRoundRect(RectF(cx - s * 0.62f, cy - s * 0.5f, cx + s * 0.62f, cy + s * 0.5f), s * 0.08f, s * 0.08f, D.p)
+                D.p.style = android.graphics.Paint.Style.FILL
+                D.circle(c, cx - s * 0.26f, cy - s * 0.18f, s * 0.12f, color)
+                val p = android.graphics.Path()
+                p.moveTo(cx - s * 0.5f, cy + s * 0.38f)
+                p.lineTo(cx - s * 0.12f, cy - s * 0.02f)
+                p.lineTo(cx + s * 0.12f, cy + s * 0.22f)
+                p.lineTo(cx + s * 0.3f, cy + s * 0.05f)
+                p.lineTo(cx + s * 0.5f, cy + s * 0.38f)
+                p.close()
+                c.drawPath(p, D.p)
+            }
+            "map" -> { // campaign — folded map with pin
+                D.p.color = color
+                D.p.style = android.graphics.Paint.Style.STROKE
+                D.p.strokeWidth = s * 0.14f
+                c.drawRoundRect(RectF(cx - s * 0.6f, cy - s * 0.45f, cx + s * 0.6f, cy + s * 0.5f), s * 0.1f, s * 0.1f, D.p)
+                c.drawLine(cx - s * 0.2f, cy - s * 0.45f, cx - s * 0.2f, cy + s * 0.5f, D.p)
+                c.drawLine(cx + s * 0.2f, cy - s * 0.45f, cx + s * 0.2f, cy + s * 0.5f, D.p)
+                D.p.style = android.graphics.Paint.Style.FILL
+                D.circle(c, cx, cy - s * 0.06f, s * 0.2f, color)
+            }
         }
     }
 }

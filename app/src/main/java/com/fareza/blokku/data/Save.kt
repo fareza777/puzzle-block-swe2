@@ -198,14 +198,40 @@ object Save {
         return s.split(',').mapNotNull { it.toIntOrNull() }.take(5).toIntArray()
     }
 
-    /** Records a finished run: updates the mode's top-5 and today's best. */
-    fun recordRun(mode: String, score: Int) {
+    /** Records a finished run: updates the mode's top-5 and today's best.
+     *  [curve] = the run's score-after-each-placement list — saved alongside the
+     *  top-5 entry so future runs can pace against it (Ghost Rivals). */
+    fun recordRun(mode: String, score: Int, curve: List<Int>? = null) {
         if (score <= 0) return
         val list = topRuns(mode).toMutableList()
         list.add(score)
         list.sortDescending()
-        p.edit().putString("top_$mode", list.take(5).joinToString(",")).apply()
+        val kept = list.take(5)
+        // index of this run inside the kept list — first position it lands on
+        val insertAt = kept.indexOf(score)
+        val curves = topCurves(mode).toMutableList()
+        if (curve != null && insertAt >= 0) {
+            while (curves.size < kept.size) curves.add("")
+            curves.add(insertAt, curve.joinToString("."))
+            while (curves.size > kept.size) curves.removeAt(curves.lastIndex)
+            p.edit().putString("topc_$mode", curves.joinToString(";")).apply()
+        }
+        p.edit().putString("top_$mode", kept.joinToString(",")).apply()
         recordDayScore(score)
+    }
+
+    /** Raw curve strings aligned with topRuns (empty string = no curve). */
+    private fun topCurves(mode: String): List<String> {
+        val s = p.getString("topc_$mode", "")!!
+        if (s.isEmpty()) return emptyList()
+        return s.split(';')
+    }
+
+    /** Score curve of the k-th best run for [mode] (0 = best), or null. */
+    fun topCurve(mode: String, rank: Int): IntArray? {
+        val c = topCurves(mode).getOrNull(rank) ?: return null
+        if (c.isEmpty()) return null
+        return c.split('.').mapNotNull { it.toIntOrNull() }.toIntArray().takeIf { it.isNotEmpty() }
     }
 
     private fun todayKey(): String {
@@ -242,6 +268,15 @@ object Save {
         }
         return out
     }
+
+    // ---- campaign map ----
+    /** Highest campaign node cleared (index of the next playable node). */
+    var campaignCleared get() = p.getInt("campaign", 0); set(v) = p.edit().putInt("campaign", v).apply()
+
+    /** Bitmask of finished mosaic pictures. */
+    var mosaicDone get() = p.getInt("mosaicDone", 0); set(v) = p.edit().putInt("mosaicDone", v).apply()
+    fun markMosaicDone(i: Int) { mosaicDone = mosaicDone or (1 shl i) }
+    fun mosaicIsDone(i: Int) = (mosaicDone shr i) and 1 == 1
 
     // ---- weekly puzzle ----
     var weeklyPuzzleKey get() = p.getInt("weeklyPuzzle", 0); set(v) = p.edit().putInt("weeklyPuzzle", v).apply()

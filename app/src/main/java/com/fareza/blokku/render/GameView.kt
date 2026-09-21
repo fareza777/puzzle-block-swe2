@@ -92,7 +92,10 @@ class GameView(context: Context) : View(context), Choreographer.FrameCallback {
         return true
     }
 
-    fun onHostBack(): Boolean = scenes.back()
+    fun onHostBack(): Boolean {
+        wake() // a sleeping frame loop must still render the overlay back() just opened
+        return scenes.back()
+    }
 
     /** Convert board-agnostic layout helper. */
     fun boardArea(): RectF {

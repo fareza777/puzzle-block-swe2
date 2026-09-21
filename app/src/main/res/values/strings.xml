@@ -225,4 +225,66 @@
     <string name="stats_top_runs">Top runs</string>
     <string name="stats_no_runs">No runs yet</string>
     <string name="stats_week_chart">Best score this week</string>
+
+    <!-- v3.0: arcade modes -->
+    <string name="menu_arcade">Arcade</string>
+    <string name="menu_arcade_sub">8 wild modes</string>
+    <string name="arcade_title">ARCADE</string>
+    <string name="campaign_title">Campaign</string>
+    <string name="campaign_prog">Node %1$d / %2$d</string>
+    <string name="mode_expedition">Expedition</string>
+    <string name="mode_expedition_sub">Draft perks each milestone</string>
+    <string name="mode_versus">Versus</string>
+    <string name="mode_versus_sub">Duel a live AI rival</string>
+    <string name="mode_boss">Boss</string>
+    <string name="mode_boss_sub">Break the stone boss</string>
+    <string name="mode_gambit">Gambit</string>
+    <string name="mode_gambit_sub">Buy your own tray</string>
+    <string name="mode_avalanche">Avalanche</string>
+    <string name="mode_avalanche_sub">Floor keeps rising</string>
+    <string name="mode_merge">Merge</string>
+    <string name="mode_merge_sub">Fuse cells to 2048</string>
+    <string name="mode_gravity">Gravity</string>
+    <string name="mode_gravity_sub">Blocks collapse &amp; chain</string>
+    <string name="mode_mosaic">Mosaic</string>
+    <string name="mode_mosaic_sub">Clear to reveal art</string>
+    <string name="avalanche_in">rise in %1$d</string>
+    <string name="perk_at">perk at %1$d</string>
+    <string name="stones_left">%1$d stones</string>
+    <string name="vs_bot">bot %1$d</string>
+    <string name="vs_bot_label">RIVAL</string>
+    <string name="vs_junk">JUNK ROW!</string>
+    <string name="ghost_passed">PASSED YOUR GHOST!</string>
+    <string name="cascade_x">CASCADE ×%1$d</string>
+    <string name="boss_phase">PHASE %1$d/%2$d</string>
+    <string name="vs_defeat">DEFEAT</string>
+    <string name="vs_victory">VICTORY</string>
+    <string name="boss_down">BOSS DOWN</string>
+    <string name="mosaic_done">ART REVEALED</string>
+    <string name="mosaic_intro">Clear the stones to reveal pixel art. Finish all 8.</string>
+    <string name="free_revive">SECOND WIND — free revive</string>
+
+    <!-- expedition perks -->
+    <string name="perk_choose">CHOOSE A PERK</string>
+    <string name="perk_fever_name">Long Fever</string>
+    <string name="perk_fever_desc">Fever Rush lasts 4s longer</string>
+    <string name="perk_grace_name">Sticky Combo</string>
+    <string name="perk_grace_desc">One extra miss keeps the combo</string>
+    <string name="perk_color_name">Color Surge</string>
+    <string name="perk_color_desc">+15 per cell of one color cleared</string>
+    <string name="perk_gem_name">Gem Magnet</string>
+    <string name="perk_gem_desc">Gem cells appear far more often</string>
+    <string name="perk_mult_name">Lucky ×3</string>
+    <string name="perk_mult_desc">×3 cells appear far more often</string>
+    <string name="perk_bomb_name">Big Boom</string>
+    <string name="perk_bomb_desc">Bombs score +80 more each</string>
+    <string name="perk_score_name">High Roller</string>
+    <string name="perk_score_desc">All scoring +20%</string>
+    <string name="perk_revive_name">Second Wind</string>
+    <string name="perk_revive_desc">One free revive this run</string>
+
+    <!-- gambit shop -->
+    <string name="shop_title">TRAY SHOP</string>
+    <string name="shop_hint">Pick %1$d pieces — spend score, not coins</string>
+    <string name="free_label">FREE</string>
 </resources>

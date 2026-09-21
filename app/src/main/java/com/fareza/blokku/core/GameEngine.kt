@@ -4,9 +4,9 @@ import kotlin.random.Random
 
 enum class GoalType { NONE, SCORE, LINES, CELLS, STONES }
 
-class Goal(val type: GoalType, val target: Int)
+class Goal(val type: GoalType, var target: Int)
 
-enum class Mode { CLASSIC, LEVEL, DAILY, ZEN, RUSH, PUZZLE }
+enum class Mode { CLASSIC, LEVEL, DAILY, ZEN, RUSH, PUZZLE, GRAVITY, AVALANCHE, MERGE, BOSS, EXPEDITION, GAMBIT, VERSUS, MOSAIC }
 
 /** A short in-run objective (classic/zen): e.g. clear 2 lines within 4 placements. */
 class Contract(
@@ -94,6 +94,8 @@ class GameEngine(
     val trayBomb = intArrayOf(-1, -1, -1)
     /** ×3 cell embedded in tray slot i — same packing. */
     val trayMult = intArrayOf(-1, -1, -1)
+    /** Merge mode: numbered cell embedded in tray slot i (value always starts 2). */
+    val trayNum = intArrayOf(-1, -1, -1)
 
     // ---- next-tray preview ----
     /** The three pieces that will refill the tray when it empties. */
@@ -101,6 +103,51 @@ class GameEngine(
     val nextGem = intArrayOf(-1, -1, -1)
     val nextBomb = intArrayOf(-1, -1, -1)
     val nextMult = intArrayOf(-1, -1, -1)
+    val nextNum = intArrayOf(-1, -1, -1)
+
+    // ---- avalanche (rising floor) ----
+    /** Placements left before the next junk row pushes up. */
+    var avalancheIn = 0
+        private set
+    var avalancheCount = 0
+        private set
+    /** True for a frame after a junk row arrived — UI shakes/flashes. */
+    var avalancheJustHit = false
+
+    // ---- boss (multi-phase stone pattern) ----
+    var bossPhase = 0      // 1-indexed while fighting
+        private set
+    var bossPhases = 0
+        private set
+    var bossPhaseJustAdvanced = false
+
+    // ---- expedition (roguelike perk draft) ----
+    /** Milestone at which the next perk offer opens. */
+    var expeditionNextAt = 1400
+    var expeditionOffer = false
+        private set
+    val expeditionPerks = HashSet<Int>()
+    // perk effects (see applyPerk for ids)
+    var perkFeverBonus = 0f; var perkGracePlus = 0; var perkColor = -1
+    var perkGemBoost = 0f; var perkMultBoost = 0f; var perkBombBonus = 0
+    var perkScoreBoost = 0f; var perkFreeRevive = false
+
+    // ---- gambit (tray shop) ----
+    var gambitOpen = false
+        private set
+    val gambitShop = arrayOfNulls<Piece>(5)
+    val gambitCost = IntArray(5)
+    var gambitPicks = 0
+        private set
+
+    // ---- ghost rivals (pace curve of past top runs) ----
+    /** Score after each placement — recorded so future runs can race it. */
+    val scoreCurve = ArrayList<Int>()
+
+    // ---- gravity ----
+    /** Cascade depth of the last place() — 1 = normal clear, 2+ = gravity chain. */
+    var lastCascade = 0
+        private set
 
     // ---- hold slot ----
     var holdPiece: Piece? = null
@@ -164,6 +211,9 @@ class GameEngine(
         val holdMult: Int,
         val holdLocked: Boolean,
         val comboGrace: Int,
+        val nums: IntArray,
+        val trayNum: IntArray,
+        val curveLen: Int,
     )
 
     private fun snapshot(): Snapshot {
@@ -177,12 +227,15 @@ class GameEngine(
         board.mults.copyInto(m)
         val st = BooleanArray(board.stones.size)
         board.stones.copyInto(st)
+        val n = IntArray(board.nums.size)
+        board.nums.copyInto(n)
         return Snapshot(
             c, tray.copyOf(), score, combo, streak, bestCombo,
             linesCleared, cellsPlaced, meter, movesLeft, gameOver, goalMet, goalFailed,
             g, trayGem.copyOf(), b, trayBomb.copyOf(),
             m, trayMult.copyOf(), st,
             holdPiece, holdGem, holdBomb, holdMult, holdLocked, comboGrace,
+            n, trayNum.copyOf(), scoreCurve.size,
         )
     }
 
@@ -202,6 +255,9 @@ class GameEngine(
         holdPiece = s.holdPiece; holdGem = s.holdGem; holdBomb = s.holdBomb; holdMult = s.holdMult
         holdLocked = s.holdLocked
         comboGrace = s.comboGrace
+        s.nums.copyInto(board.nums)
+        s.trayNum.copyInto(trayNum)
+        while (scoreCurve.size > s.curveLen) scoreCurve.removeAt(scoreCurve.size - 1)
     }
 
     val canUndo get() = undoStack.isNotEmpty()
@@ -217,15 +273,15 @@ class GameEngine(
     val lastStand: Boolean
         get() = board.filledCount() >= board.size * board.size * 4 / 5
 
-    private fun effGemChance() = if (lastStand) (gemChance * 2.2f).coerceAtMost(0.6f) else gemChance
+    private fun effGemChance() = (if (lastStand) (gemChance * 2.2f).coerceAtMost(0.6f) else gemChance) + perkGemBoost
 
     fun refillTray() {
         // full refill consumes the previewed next-tray so the preview is honest
         for (i in 0..2) {
             if (tray[i] == null && nextTray[i] != null) {
                 tray[i] = nextTray[i]; nextTray[i] = null
-                trayGem[i] = nextGem[i]; trayBomb[i] = nextBomb[i]; trayMult[i] = nextMult[i]
-                nextGem[i] = -1; nextBomb[i] = -1; nextMult[i] = -1
+                trayGem[i] = nextGem[i]; trayBomb[i] = nextBomb[i]; trayMult[i] = nextMult[i]; trayNum[i] = nextNum[i]
+                nextGem[i] = -1; nextBomb[i] = -1; nextMult[i] = -1; nextNum[i] = -1
             }
         }
         for (i in 0..2) if (tray[i] == null) { tray[i] = nextPiece(); rollSpecial(i) }
@@ -258,6 +314,12 @@ class GameEngine(
                 while ((pick == nextGem[i] || pick == nextBomb[i]) && tries++ < 4) pick = p.cells[rng.nextInt(p.cells.size)]
                 pick
             } else -1
+            nextNum[i] = if (mode == Mode.MERGE && rng.nextFloat() < 0.4f) {
+                var pick = p.cells[rng.nextInt(p.cells.size)]
+                var tries = 0
+                while ((pick == nextGem[i] || pick == nextBomb[i] || pick == nextMult[i]) && tries++ < 4) pick = p.cells[rng.nextInt(p.cells.size)]
+                pick
+            } else -1
         }
     }
 
@@ -273,10 +335,16 @@ class GameEngine(
             while (pick == trayGem[i] && tries++ < 4) pick = p.cells[rng.nextInt(p.cells.size)]
             pick
         } else -1
-        trayMult[i] = if (p != null && rng.nextFloat() < 0.07f) {
+        trayMult[i] = if (p != null && rng.nextFloat() < 0.07f + perkMultBoost) {
             var pick = p.cells[rng.nextInt(p.cells.size)]
             var tries = 0
             while ((pick == trayGem[i] || pick == trayBomb[i]) && tries++ < 4) pick = p.cells[rng.nextInt(p.cells.size)]
+            pick
+        } else -1
+        trayNum[i] = if (mode == Mode.MERGE && p != null && rng.nextFloat() < 0.4f) {
+            var pick = p.cells[rng.nextInt(p.cells.size)]
+            var tries = 0
+            while ((pick == trayGem[i] || pick == trayBomb[i] || pick == trayMult[i]) && tries++ < 4) pick = p.cells[rng.nextInt(p.cells.size)]
             pick
         } else -1
     }
@@ -320,7 +388,7 @@ class GameEngine(
         trayGem[i] = g; trayBomb[i] = b; trayMult[i] = m
         holdLocked = true
         // holding the last playable piece leaves an empty tray — refill so play continues
-        if (trayEmpty()) refillTray()
+        if (trayEmpty()) onTrayEmpty()
         return true
     }
 
@@ -368,9 +436,12 @@ class GameEngine(
 
     /** Attempt to place tray piece i at (row,col). */
     fun place(i: Int, row: Int, col: Int): PlaceResult {
-        if (gameOver) return PlaceResult(false)
+        if (gameOver || gambitOpen || expeditionOffer) return PlaceResult(false)
         val p = tray[i] ?: return PlaceResult(false)
         if (!board.fits(p, row, col)) return PlaceResult(false)
+
+        avalancheJustHit = false
+        bossPhaseJustAdvanced = false
 
         undoStack.addLast(snapshot())
         if (undoStack.size > 20) undoStack.removeFirst()
@@ -388,6 +459,9 @@ class GameEngine(
         val mm = trayMult[i]
         if (mm >= 0) board.mults[(row + (mm shr 4)) * board.size + col + (mm and 15)] = true
         trayMult[i] = -1
+        val nm = trayNum[i]
+        if (nm >= 0) board.nums[(row + (nm shr 4)) * board.size + col + (nm and 15)] = 2
+        trayNum[i] = -1
         tray[i] = null
         cellsPlaced += p.size
         if (movesLeft > 0) movesLeft--
@@ -416,10 +490,12 @@ class GameEngine(
         var bombsN = 0
         var monoLines = 0
         var multHit = false
+        var preForPerk: IntArray? = null
         if (!res.isEmpty) {
             for (cc in res.clearCells) if (board.gems[cc]) gems++
             // MONO — a cleared line of a single colour scores +150% extra
             val pre = board.cells.copyOf()
+            preForPerk = pre
             for (lr in res.rows) {
                 var v = -1; var same = true
                 for (cc in 0 until board.size) {
@@ -447,9 +523,9 @@ class GameEngine(
             linesCleared += n
             combo++
             streak++
-            comboGrace = 1 // one free pass before the chain drops
+            comboGrace = 1 + perkGracePlus // free pass(es) before the chain drops
             if (combo > bestCombo) bestCombo = combo
-            gained += (res.clearCells.size + boom.size) * 10 + n * n * 40 + bombsN * 60
+            gained += (res.clearCells.size + boom.size) * 10 + n * n * 40 + bombsN * (60 + perkBombBonus)
             gained += (gained * (0.5f * monoLines)).toInt()
             if (multHit) gained *= 3
             gained = (gained * (1f + 0.5f * (combo - 1))).toInt()
@@ -458,7 +534,7 @@ class GameEngine(
             if (feverT > 0f) gained *= 2
             meter += n * 12 + (if (combo > 1) 8 * combo else 0) + bombsN * 10
             if (mode == Mode.RUSH) meter += n * 10 // fever charges ~2x in Rush
-            if (meter >= 100) { meter -= 100; meterFullNow = true; feverT = 8f }
+            if (meter >= 100) { meter -= 100; meterFullNow = true; feverT = 8f + perkFeverBonus }
         } else {
             // combo grace: the chain survives one non-clearing placement, then drops
             if (combo > 0) {
@@ -467,9 +543,61 @@ class GameEngine(
             streak = 0
             meter += 2
         }
+
+        // ---- GRAVITY / MERGE physics loop ----
+        // After the initial clear, cells settle downward (Gravity) and equal
+        // numbered neighbours merge (Merge). Either can complete new lines,
+        // which clear and settle again — chains until the board is stable.
+        var cascades = 0
+        if (mode == Mode.GRAVITY || mode == Mode.MERGE) {
+            var moved = board.settle()
+            if (mode == Mode.MERGE) {
+                val mg = mergePass()
+                gained += mg
+                moved = moved || mg > 0
+            }
+            var nx = boardPostClears()
+            while ((!nx.isEmpty || moved) && cascades < 12) {
+                if (!nx.isEmpty) {
+                    cascades++
+                    for (cc in nx.clearCells) if (board.gems[cc]) gems++
+                    for (cc in nx.clearCells) if (board.mults[cc]) multHit = true
+                    val det2 = detonate(nx.clearCells)
+                    boom = boom + det2.first; bombsN += det2.second; gems += boomGems
+                    board.applyClear(nx.clearCells)
+                    linesCleared += nx.lineCount
+                    var cg = (nx.clearCells.size + det2.first.size) * 10 +
+                        nx.lineCount * nx.lineCount * 40 + det2.second * (60 + perkBombBonus)
+                    cg += cg * cascades / 2 // deeper cascades pay more
+                    if (multHit) cg *= 3
+                    gained += cg
+                }
+                moved = board.settle()
+                if (mode == Mode.MERGE) {
+                    val mg = mergePass()
+                    gained += mg
+                    moved = moved || mg > 0
+                }
+                nx = boardPostClears()
+            }
+            if (cascades > 0) {
+                meter += cascades * 6
+                if (!perfect && board.filledCount() == 0) { perfect = true; gained += 400 + combo * 100 }
+            }
+        }
+        lastCascade = cascades
+
         if (snug) gained += 25 + p.size * 5
+        if (perkScoreBoost > 0f) gained += (gained * perkScoreBoost).toInt()
+        if (perkColor >= 0 && preForPerk != null) {
+            // Color Surge perk: +15 per cleared cell matching the chosen colour
+            var n = 0
+            for (cc in res.clearCells) if (preForPerk[cc] == perkColor + 1) n++
+            gained += n * 15
+        }
         lastGemsCollected = gems
         score += gained
+        scoreCurve.add(score)
         tickContract(res.lineCount, bombsN, snug)
 
         // classic difficulty ramp: bigger pieces weigh more over time and a
@@ -479,10 +607,194 @@ class GameEngine(
             colorCount = if (score >= 1500) 7 else 6
         }
 
-        if (trayEmpty()) refillTray()
+        // AVALANCHE — the floor rises every few placements
+        if (mode == Mode.AVALANCHE && !gameOver) {
+            avalancheIn--
+            if (avalancheIn <= 0) {
+                avalancheJustHit = true
+                val gapA = rng.nextInt(board.size)
+                var gapB = rng.nextInt(board.size)
+                if (gapB == gapA) gapB = (gapB + 1) % board.size
+                val fill = BooleanArray(board.size) { it != gapA && it != gapB && rng.nextFloat() < 0.62f }
+                if (!board.pushJunkRow(fill, 1 + rng.nextInt(6))) gameOver = true
+                avalancheCount++
+                avalancheIn = (7 - avalancheCount / 3).coerceAtLeast(3)
+            }
+        }
+
+        // EXPEDITION — hitting a score milestone opens the perk draft
+        if (mode == Mode.EXPEDITION && !gameOver && score >= expeditionNextAt) {
+            expeditionOffer = true
+            expeditionNextAt += 1200 + rng.nextInt(500)
+        }
+
+        if (trayEmpty()) onTrayEmpty()
         evaluateEnd()
         return PlaceResult(true, res.clearCells, res.lineCount, gained, combo, meterFullNow, gems, perfect, boom, bombsN, monoLines, snug, multHit)
     }
+
+    private fun onTrayEmpty() {
+        if (mode == Mode.GAMBIT) openGambitShop() else refillTray()
+    }
+
+    /**
+     * Merge mode: scan for orthogonally adjacent equal numbered cells and fuse
+     * them into the lower/right cell (value doubles). Returns total merged score.
+     */
+    fun mergePass(): Int {
+        var total = 0
+        val consumed = HashSet<Int>()
+        for (r in 0 until board.size) for (c in 0 until board.size) {
+            val i = r * board.size + c
+            val v = board.nums[i]
+            if (v == 0 || i in consumed) continue
+            val down = if (r + 1 < board.size) (r + 1) * board.size + c else -1
+            val right = if (c + 1 < board.size) r * board.size + c + 1 else -1
+            for (t in intArrayOf(down, right)) {
+                if (t < 0 || t in consumed) continue
+                if (board.nums[t] == v) {
+                    board.nums[t] = v * 2
+                    board.cells[i] = 0; board.nums[i] = 0
+                    board.gems[i] = false; board.bombs[i] = false
+                    board.mults[i] = false; board.stones[i] = false
+                    consumed.add(t)
+                    total += v * 2
+                    break
+                }
+            }
+        }
+        return total
+    }
+
+    // ---------- expedition perks ----------
+
+    /** Three perk ids not yet owned (empty when everything is taken). */
+    fun perkChoices(): IntArray {
+        val pool = (0..7).filter { it !in expeditionPerks }
+        if (pool.size <= 3) return pool.toIntArray()
+        return pool.shuffled(rng).take(3).toIntArray()
+    }
+
+    fun applyPerk(id: Int) {
+        expeditionPerks.add(id)
+        when (id) {
+            0 -> perkFeverBonus += 4f      // Long Fever: fever lasts 12s
+            1 -> perkGracePlus += 1        // Sticky Combo: 2 free misses
+            2 -> perkColor = rng.nextInt(colorCount) // Color Surge
+            3 -> perkGemBoost += 0.18f     // Gem Magnet
+            4 -> perkMultBoost += 0.13f    // Lucky ×3
+            5 -> perkBombBonus += 80       // Big Boom pays more
+            6 -> perkScoreBoost += 0.2f    // High Roller +20% score
+            7 -> perkFreeRevive = true     // Second Wind
+        }
+        expeditionOffer = false
+        evaluateEnd()
+    }
+
+    /** Dismiss the draft without taking a perk (offer exhausted). */
+    fun closeOffer() { expeditionOffer = false }
+
+    // ---------- gambit (tray shop) ----------
+
+    /** Tray emptied in Gambit mode → open the shop instead of auto-refilling. */
+    private fun openGambitShop() {
+        gambitOpen = true
+        gambitPicks = 0
+        for (k in 0..4) {
+            val p = nextPiece()
+            gambitShop[k] = p
+            gambitCost[k] = p.size * 14 + rng.nextInt(15)
+        }
+        // mercy rule: if the player can't afford the cheapest card, it's free
+        var cheapest = 0
+        for (k in 1..4) if (gambitCost[k] < gambitCost[cheapest]) cheapest = k
+        if (score < gambitCost[cheapest]) gambitCost[cheapest] = 0
+    }
+
+    /** Buy shop card [k] into the next free tray slot. 3 buys close the shop. */
+    fun gambitBuy(k: Int): Boolean {
+        if (!gambitOpen) return false
+        val p = gambitShop[k] ?: return false
+        if (score < gambitCost[k]) return false
+        score -= gambitCost[k]
+        val slot = (0..2).firstOrNull { tray[it] == null } ?: return false
+        tray[slot] = p
+        rollSpecial(slot)
+        gambitShop[k] = null
+        val done = ++gambitPicks >= 3 || gambitShop.all { it == null } ||
+            // broke: nothing left is affordable — remaining slots fill free
+            !gambitShop.indices.any { gambitShop[it] != null && gambitCost[it] <= score }
+        if (done) {
+            gambitOpen = false
+            while (true) {
+                val free = (0..2).firstOrNull { tray[it] == null } ?: break
+                tray[free] = nextPiece(); rollSpecial(free)
+            }
+            if (nextTray.all { it == null }) refillNext()
+        }
+        evaluateEnd()
+        return true
+    }
+
+    // ---------- avalanche / versus junk rows ----------
+
+    /** Push [pressure]≈lines-worth of junk up from the bottom (Versus attacks,
+     *  Avalanche surges). Returns false when the push tops the player out. */
+    fun takeJunkRow(pressure: Int): Boolean {
+        val fill = BooleanArray(board.size)
+        val gap = rng.nextInt(board.size)
+        var n = (pressure + 2).coerceIn(3, board.size - 1)
+        for (c in (0 until board.size).shuffled(rng)) {
+            if (n <= 0) break
+            if (c != gap) { fill[c] = true; n-- }
+        }
+        val ok = board.pushJunkRow(fill, 1 + rng.nextInt(6))
+        if (!ok) gameOver = true else evaluateEnd()
+        return ok
+    }
+
+    /** One step of the Versus bot: place the best-scoring tray piece.
+     *  Returns lines cleared (caller converts ≥2 into a junk attack), or -1. */
+    fun botStep(): Int {
+        val mv = bestMove() ?: return -1
+        val r = place(mv.first, mv.second, mv.third)
+        return if (r.placed) r.lines else -1
+    }
+
+    /** Seed for boss patterns — set by the boss() factory so runs differ. */
+    var bossSeed: Long = 0
+
+    /** Boss fight: spawn the next stone pattern and top up the move budget. */
+    private fun spawnBossPhase() {
+        bossPhase++
+        val pr = Random(91_000_000L + bossSeed + bossPhase * 6271 + avalancheCount)
+        var stones = 0
+        // chunky seeded blob: centroid + clustered neighbours, harder per phase
+        val wanted = 10 + bossPhase * 5 + (if (bossPhases > 0) bossPhases * 2 else 0)
+        var guard = 0
+        val cx = 1 + pr.nextInt(board.size - 2)
+        val cy = 1 + pr.nextInt(board.size - 4)
+        while (stones < wanted && guard++ < 400) {
+            val r = (cy + (pr.nextFloat() * 4.6f).toInt() - 2).coerceIn(0, board.size - 1)
+            val c = (cx + (pr.nextFloat() * 6.4f).toInt() - 3).coerceIn(0, board.size - 1)
+            val i = r * board.size + c
+            if (!board.stones[i]) {
+                board.stones[i] = true
+                if (board.cells[i] == 0) board.cells[i] = 1 + pr.nextInt(6)
+                stones++
+            }
+        }
+        goal.target = stones
+        movesLeft += 6 + bossPhase * 2
+        bossPhaseJustAdvanced = true
+        ensureTrayFits()
+    }
+
+    /** Versus win/lose helper — the bot topped out, so the player wins now. */
+    fun forceWin() { goalMet = true }
+
+    /** Avalanche countdown accessor for UI (placements until the next rise). */
+    fun avalancheInterval() = (7 - avalancheCount / 3).coerceAtLeast(3)
 
     // ---------- micro-contracts (classic only — Zen is pressure-free) ----------
 
@@ -587,6 +899,7 @@ class GameEngine(
                     board.cells[idx] = 0
                     board.gems[idx] = false
                     board.bombs[idx] = false
+                    board.nums[idx] = 0
                     removed.add(idx)
                 }
             }
@@ -610,7 +923,7 @@ class GameEngine(
         val boom = if (seeds.isNotEmpty()) detonate(seeds.toIntArray()).first else IntArray(0)
         lastGemsCollected += boomGems
         val removed = board.clearArea(row, col, 1)
-        if (trayEmpty()) refillTray()
+        if (trayEmpty()) onTrayEmpty()
         evaluateEnd()
         return removed + boom
     }
@@ -662,6 +975,9 @@ class GameEngine(
             }
             return
         }
+        if (mode == Mode.BOSS && board.stoneCount() == 0 && bossPhase < bossPhases) {
+            spawnBossPhase() // next wave of stones — keeps the goal alive
+        }
         when (goal.type) {
             GoalType.SCORE -> if (score >= goal.target) goalMet = true
             GoalType.LINES -> if (linesCleared >= goal.target) goalMet = true
@@ -671,7 +987,8 @@ class GameEngine(
         }
         if (goalMet) return
         if (movesLeft == 0 && goal.type != GoalType.NONE) { goalFailed = true; gameOver = true; return }
-        if (!anyTrayFit()) gameOver = true
+        // an empty tray is not a loss while the gambit shop is deciding the refill
+        if (!anyTrayFit() && !gambitOpen) gameOver = true
     }
 
     /** Counts how many times Zen auto-relief fired (UI shows a notice). */
@@ -690,7 +1007,8 @@ class GameEngine(
         if (lowest < 0) return
         for (c in 0 until board.size) {
             val i = lowest * board.size + c
-            board.cells[i] = 0; board.gems[i] = false; board.bombs[i] = false; board.mults[i] = false
+            board.cells[i] = 0; board.gems[i] = false; board.bombs[i] = false
+            board.mults[i] = false; board.stones[i] = false; board.nums[i] = 0
         }
     }
 
@@ -758,6 +1076,15 @@ class GameEngine(
         for (i in board.mults.indices) { if (i > 0) sb.append(','); sb.append(if (board.mults[i]) 1 else 0) }
         sb.append(';')
         for (i in 0..2) { if (i > 0) sb.append(','); sb.append(trayMult[i]) }
+        // v8 tail: nums csv; trayNum; avalanche; boss; scoreCurve
+        sb.append(';')
+        for (i in board.nums.indices) { if (i > 0) sb.append(','); sb.append(board.nums[i]) }
+        sb.append(';')
+        for (i in 0..2) { if (i > 0) sb.append(','); sb.append(trayNum[i]) }
+        sb.append(';').append(avalancheIn).append(',').append(avalancheCount)
+        sb.append(';').append(bossPhase).append(',').append(bossPhases)
+        sb.append(';')
+        for (i in scoreCurve.indices) { if (i > 0) sb.append(','); sb.append(scoreCurve[i]) }
         return sb.toString()
     }
 
@@ -772,6 +1099,11 @@ class GameEngine(
                 Mode.ZEN -> intArrayOf(1200, 3000, 5500)
                 Mode.RUSH -> intArrayOf(700, 1500, 2800)
                 Mode.DAILY -> intArrayOf(500, 1200, 2200)
+                Mode.EXPEDITION -> intArrayOf(1800, 4200, 8000)
+                Mode.GAMBIT -> intArrayOf(1200, 3000, 5500)
+                Mode.AVALANCHE -> intArrayOf(800, 2000, 4000)
+                Mode.MERGE -> intArrayOf(1200, 3000, 6000)
+                Mode.GRAVITY -> intArrayOf(1000, 2600, 5200)
                 else -> intArrayOf(800, 2000, 4000)
             }
             return when {
@@ -819,6 +1151,62 @@ class GameEngine(
             // weekly defs (index >= COUNT) salt the board layout with their seed
             if (def.index >= Puzzles.COUNT) Puzzles.seedBoard(e, def.index, def.seed)
             else Puzzles.seedBoard(e, def.index)
+            e.ensureTrayFits()
+            return e
+        }
+
+        /** Gravity — cleared cells leave gaps everything else falls through. */
+        fun gravity(rng: Random = Random.Default) =
+            GameEngine(Board(9), rng, Mode.GRAVITY, Goal(GoalType.NONE, 0), -1)
+
+        /** Avalanche — the floor pushes a junk row up every few placements. */
+        fun avalanche(rng: Random = Random.Default): GameEngine {
+            val e = GameEngine(Board(9), rng, Mode.AVALANCHE, Goal(GoalType.NONE, 0), -1)
+            e.avalancheIn = 7
+            return e
+        }
+
+        /** Merge — numbered cells fuse like 2048 between line clears. */
+        fun merge(rng: Random = Random.Default) =
+            GameEngine(Board(9), rng, Mode.MERGE, Goal(GoalType.NONE, 0), -1)
+
+        /** Boss — clear seeded stone blobs; each cleared wave spawns a bigger one. */
+        fun boss(phases: Int = 3, seed: Long = Random.nextLong()): GameEngine {
+            val e = GameEngine(Board(9), Random(seed), Mode.BOSS, Goal(GoalType.STONES, 0), 20 + phases * 8)
+            e.bossPhases = phases
+            e.bossSeed = seed % 1_000_000
+            e.spawnBossPhase()
+            e.ensureTrayFits()
+            return e
+        }
+
+        /** Expedition — classic run punctuated by perk drafts at score milestones. */
+        fun expedition(rng: Random = Random.Default) =
+            GameEngine(Board(9), rng, Mode.EXPEDITION, Goal(GoalType.NONE, 0), -1)
+
+        /** Gambit — the tray is a shop: buy 3 pieces with your own score. */
+        fun gambit(rng: Random = Random.Default) =
+            GameEngine(Board(9), rng, Mode.GAMBIT, Goal(GoalType.NONE, 0), -1)
+
+        /** Versus — the player's engine; the bot is a second classic engine. */
+        fun versus(rng: Random = Random.Default) =
+            GameEngine(Board(9), rng, Mode.VERSUS, Goal(GoalType.NONE, 0), -1)
+
+        /** Mosaic — clear stones to reveal pixel art. */
+        fun mosaic(artIndex: Int, seed: Long = Random.nextLong()): GameEngine {
+            val e = GameEngine(Board(9), Random(seed), Mode.MOSAIC, Goal(GoalType.STONES, 0), -1)
+            val art = Mosaics.art(artIndex)
+            val pr = Random(seed)
+            var stones = 0
+            for (i in art.indices) {
+                if (art[i] != 0) {
+                    e.board.stones[i] = true
+                    e.board.cells[i] = 1 + pr.nextInt(6)
+                    stones++
+                }
+            }
+            e.goal.target = stones
+            e.movesLeft = stones + 14
             e.ensureTrayFits()
             return e
         }
@@ -902,8 +1290,30 @@ class GameEngine(
                     if (mc.size == e.board.mults.size) for (k in mc.indices) e.board.mults[k] = mc[k] == "1"
                 }
                 if (i < f.size) {
-                    val tm = f[i].split(',')
+                    val tm = f[i++].split(',')
                     for (k in 0..2) e.trayMult[k] = tm.getOrNull(k)?.toIntOrNull() ?: -1
+                }
+                // v8 tail
+                if (i < f.size) {
+                    val nc = f[i++].split(',')
+                    if (nc.size == e.board.nums.size) for (k in nc.indices) e.board.nums[k] = nc[k].toIntOrNull() ?: 0
+                }
+                if (i < f.size) {
+                    val tn = f[i++].split(',')
+                    for (k in 0..2) e.trayNum[k] = tn.getOrNull(k)?.toIntOrNull() ?: -1
+                }
+                if (i < f.size) {
+                    val av = f[i++].split(',')
+                    e.avalancheIn = av.getOrNull(0)?.toIntOrNull() ?: 0
+                    e.avalancheCount = av.getOrNull(1)?.toIntOrNull() ?: 0
+                }
+                if (i < f.size) {
+                    val bp = f[i++].split(',')
+                    e.bossPhase = bp.getOrNull(0)?.toIntOrNull() ?: 0
+                    e.bossPhases = bp.getOrNull(1)?.toIntOrNull() ?: 0
+                }
+                if (i < f.size) {
+                    for (s in f[i].split(',')) s.toIntOrNull()?.let { e.scoreCurve.add(it) }
                 }
                 e
             } catch (ex: Exception) { null }

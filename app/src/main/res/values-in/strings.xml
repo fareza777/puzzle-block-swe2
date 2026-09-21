@@ -208,4 +208,66 @@
     <string name="stats_top_runs">Skor terbaik</string>
     <string name="stats_no_runs">Belum ada skor</string>
     <string name="stats_week_chart">Skor terbaik minggu ini</string>
+
+    <!-- v3.0: arcade modes -->
+    <string name="menu_arcade">Arcade</string>
+    <string name="menu_arcade_sub">8 mode liar</string>
+    <string name="arcade_title">ARCADE</string>
+    <string name="campaign_title">Kampanye</string>
+    <string name="campaign_prog">Node %1$d / %2$d</string>
+    <string name="mode_expedition">Ekspedisi</string>
+    <string name="mode_expedition_sub">Pilih perk tiap milestone</string>
+    <string name="mode_versus">Lawan</string>
+    <string name="mode_versus_sub">Duel melawan AI</string>
+    <string name="mode_boss">Boss</string>
+    <string name="mode_boss_sub">Hancurkan bos batu</string>
+    <string name="mode_gambit">Gambit</string>
+    <string name="mode_gambit_sub">Beli tray-mu sendiri</string>
+    <string name="mode_avalanche">Longsor</string>
+    <string name="mode_avalanche_sub">Lantai terus naik</string>
+    <string name="mode_merge">Gabung</string>
+    <string name="mode_merge_sub">Fusi sel ke 2048</string>
+    <string name="mode_gravity">Gravitasi</string>
+    <string name="mode_gravity_sub">Balok runtuh berantai</string>
+    <string name="mode_mosaic">Mosaik</string>
+    <string name="mode_mosaic_sub">Hapus untuk buka gambar</string>
+    <string name="avalanche_in">naik dalam %1$d</string>
+    <string name="perk_at">perk di %1$d</string>
+    <string name="stones_left">%1$d batu</string>
+    <string name="vs_bot">bot %1$d</string>
+    <string name="vs_bot_label">RIVAL</string>
+    <string name="vs_junk">BARIS SAMPAH!</string>
+    <string name="ghost_passed">LEWATI GHOST-MU!</string>
+    <string name="cascade_x">RANTAI ×%1$d</string>
+    <string name="boss_phase">FASE %1$d/%2$d</string>
+    <string name="vs_defeat">KALAH</string>
+    <string name="vs_victory">MENANG</string>
+    <string name="boss_down">BOSS TUMBANG</string>
+    <string name="mosaic_done">GAMBAR TERBUKA</string>
+    <string name="mosaic_intro">Hapus batu untuk membuka pixel art. Selesaikan 8 gambar.</string>
+    <string name="free_revive">SECOND WIND — revive gratis</string>
+
+    <!-- expedition perks -->
+    <string name="perk_choose">PILIH PERK</string>
+    <string name="perk_fever_name">Fever Panjang</string>
+    <string name="perk_fever_desc">Fever Rush 4 detik lebih lama</string>
+    <string name="perk_grace_name">Combo Lengket</string>
+    <string name="perk_grace_desc">Satu miss ekstra tak putuskan combo</string>
+    <string name="perk_color_name">Color Surge</string>
+    <string name="perk_color_desc">+15 per sel warna tertentu terhapus</string>
+    <string name="perk_gem_name">Magnet Permata</string>
+    <string name="perk_gem_desc">Sel permata muncul jauh lebih sering</string>
+    <string name="perk_mult_name">×3 Beruntung</string>
+    <string name="perk_mult_desc">Sel ×3 muncul jauh lebih sering</string>
+    <string name="perk_bomb_name">Bom Besar</string>
+    <string name="perk_bomb_desc">Bom memberi +80 skor ekstra</string>
+    <string name="perk_score_name">High Roller</string>
+    <string name="perk_score_desc">Semua skor +20%</string>
+    <string name="perk_revive_name">Angin Kedua</string>
+    <string name="perk_revive_desc">Satu revive gratis per run</string>
+
+    <!-- gambit shop -->
+    <string name="shop_title">TOKO TRAY</string>
+    <string name="shop_hint">Pilih %1$d balok — bayar pakai skor, bukan koin</string>
+    <string name="free_label">GRATIS</string>
 </resources>

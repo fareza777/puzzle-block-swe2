@@ -15,6 +15,7 @@ import com.fareza.blokku.core.GameEngine
 import com.fareza.blokku.core.GoalType
 import com.fareza.blokku.core.Levels
 import com.fareza.blokku.core.Mode
+import com.fareza.blokku.core.Mosaics
 import com.fareza.blokku.core.Piece
 import com.fareza.blokku.core.Puzzles
 import com.fareza.blokku.data.Achievements
@@ -39,6 +40,12 @@ class GameScene(
     val engine: GameEngine,
     val levelIndex: Int = -1,
     val dailySeed: Long = 0L,
+    /** Campaign node index this run was launched from (-1 = standalone). */
+    val campaignNode: Int = -1,
+    /** Mosaic picture index (-1 = non-mosaic). */
+    val mosaicIndex: Int = -1,
+    /** Boss fight phase count (-1 = use engine's). */
+    val bossArg: Int = 0,
 ) : BaseScene() {
 
     // ---- layout ----
@@ -144,7 +151,28 @@ class GameScene(
     private var revived = false
     private var awardCoins = 0
 
-    enum class Overlay { NONE, PAUSE, GAMEOVER, LEVEL_COMPLETE, QUIT_CONFIRM, POWERS }
+    // ---- versus (AI opponent) ----
+    private var bot: GameEngine? = null
+    private var botTimer = 0f
+    private var botRect = RectF()
+    private var versusResultShown = false
+
+    // ---- expedition ----
+    private var perkOffer = IntArray(0)
+
+    // ---- boss ----
+    private var bossBannerT = 0f
+
+    // ---- ghost rivals ----
+    private var ghostCurve: IntArray? = null
+    private var ghostPassT = 0f
+    private var ghostPassed = false
+    private var cascadeT = 0f
+
+    // ---- mosaic ----
+    private var mosaicArt: IntArray? = null
+
+    enum class Overlay { NONE, PAUSE, GAMEOVER, LEVEL_COMPLETE, QUIT_CONFIRM, POWERS, PERK, SHOP }
 
     class ClearFx(val cellsWithColor: IntArray, var age: Float = 0f) // packed idx | color<<16
     {
@@ -164,8 +192,18 @@ class GameScene(
             Mode.ZEN -> Save.bestZen
             Mode.RUSH -> Save.bestRush
             Mode.DAILY -> Save.bestDailyScore
+            Mode.GRAVITY, Mode.AVALANCHE, Mode.MERGE, Mode.EXPEDITION, Mode.GAMBIT ->
+                Save.topRuns(engine.mode.name).firstOrNull() ?: 0
             else -> 0
         }
+        // Ghost Rivals — the score curve of the current #1 run for this mode
+        ghostCurve = Save.topCurve(engine.mode.name, 0)
+        ghostPassT = 0f
+        if (engine.mode == Mode.VERSUS) {
+            bot = GameEngine.classic(Random(4242 + System.currentTimeMillis() % 10000))
+            botTimer = 1.6f
+        }
+        if (engine.mode == Mode.MOSAIC) mosaicArt = Mosaics.art(if (mosaicIndex >= 0) mosaicIndex else 0)
         refreshDanger()
         if (!Save.tutorialDone) {
             scene().push(TutorialScene())
@@ -338,6 +376,65 @@ class GameScene(
             addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.30f, s(R.string.contract_failed), D.withAlpha(Color.WHITE, 190), D.sp(13f))
             engine.contractJustFailed = false
         }
+
+        // ---- avalanche: the floor just surged ----
+        if (engine.avalancheJustHit) {
+            engine.avalancheJustHit = false
+            boardShake = 0.4f
+            Audio.play("bomb", 0.8f)
+            Haptic.heavy()
+            particles.burst(boardRect.centerX(), boardRect.bottom, 0xFFFF8A3C.toInt(), count = 14, speed = D.dp(240f), size = D.dp(8f), life = 0.6f, gravity = -D.dp(200f))
+        }
+        // ---- boss: a fresh wave of stones arrived ----
+        if (engine.bossPhaseJustAdvanced) {
+            engine.bossPhaseJustAdvanced = false
+            bossBannerT = 1.8f
+            boardShake = 0.45f
+            Audio.play("win", 0.85f)
+            Haptic.heavy()
+        }
+        bossBannerT = (bossBannerT - dt).coerceAtLeast(0f)
+        ghostPassT = (ghostPassT - dt).coerceAtLeast(0f)
+        cascadeT = (cascadeT - dt).coerceAtLeast(0f)
+
+        // ---- expedition: a milestone opened the perk draft ----
+        if (engine.expeditionOffer && overlay == Overlay.NONE && gameOverDelay <= 0f) {
+            perkOffer = engine.perkChoices()
+            if (perkOffer.isNotEmpty()) {
+                overlay = Overlay.PERK
+                overlayAnim.reset()
+                Audio.play("reward")
+            } else engine.closeOffer() // all perks owned — auto-close
+        }
+        // ---- gambit: tray emptied → the shop opens ----
+        if (engine.gambitOpen && overlay == Overlay.NONE && gameOverDelay <= 0f) {
+            overlay = Overlay.SHOP
+            overlayAnim.reset()
+            Audio.play("spawn")
+        }
+        // ---- versus: bot plays on a timer; junk flows both ways ----
+        val b = bot
+        if (b != null && overlay == Overlay.NONE && gameOverDelay <= 0f && !engine.gameOver && !engine.goalMet) {
+            botTimer -= dt
+            if (botTimer <= 0f) {
+                botTimer = 1.5f
+                val lines = b.botStep()
+                if (lines >= 2) {
+                    // attack: junk row rises on the player's board
+                    engine.takeJunkRow(lines - 1)
+                    boardShake = maxOf(boardShake, 0.25f)
+                    Audio.play("bomb", 1.1f)
+                    Haptic.soft()
+                    addFloat(boardRect.centerX(), boardRect.top - D.dp(4f), s(R.string.vs_junk), 0xFFFF5D73.toInt(), D.sp(13f))
+                    if (engine.gameOver) afterMove()
+                }
+                if (b.gameOver && !versusResultShown) {
+                    versusResultShown = true
+                    engine.forceWin()
+                    afterMove()
+                }
+            }
+        }
     }
 
     private fun refreshDanger() {
@@ -390,9 +487,10 @@ class GameScene(
             dragIndex >= 0 || retPiece != null || gameOverDelay > 0 || overlayAnim.let { !it.done && overlay != Overlay.NONE } ||
             enterAnim.t < enterAnim.duration || trayPop.any { it < 1f } ||
             feverBannerT > 0 || perfectBannerT > 0 || recordBannerT > 0 || lastStandOn || engine.feverT > 0 ||
-            hintT > 0 || dangerPulse > 0 || undoHeld || contractChipT > 0 ||
+            hintT > 0 || dangerPulse > 0 || undoHeld || contractChipT > 0 || bossBannerT > 0 ||
             (engine.timeLimitSec > 0 && overlay == Overlay.NONE && !engine.gameOver) ||
-            (overlay == Overlay.LEVEL_COMPLETE && starAnimT < 2f)
+            (overlay == Overlay.LEVEL_COMPLETE && starAnimT < 2f) ||
+            (bot != null && overlay == Overlay.NONE && !engine.gameOver && !engine.goalMet)
 
     // ============ touch ============
 
@@ -415,6 +513,8 @@ class GameScene(
                     val idx = boardIndexAt(e.x, e.y)
                     if (idx >= 0) { doBomb(idx); return true }
                 }
+                // rival PiP panel swallows taps so it can't trigger a placement
+                if (bot != null && botRect.contains(e.x, e.y)) return true
                 // pick up tray piece (only when no drag is active — ignore 2nd finger)
                 if (dragIndex < 0) for (i in 0..2) {
                     val tr = trayRects[i] ?: continue
@@ -473,11 +573,38 @@ class GameScene(
     }
 
     private fun handleOverlayTap(x: Float, y: Float) {
+        // perk draft — tap a card to take the perk
+        if (overlay == Overlay.PERK) {
+            for ((pid, r) in perkCardRects) if (r.contains(x, y)) {
+                engine.applyPerk(pid)
+                overlay = Overlay.NONE
+                Audio.play("reward", 1.15f)
+                Haptic.success()
+                particles.ring(boardRect.centerX(), boardRect.centerY(), perkTint[pid])
+                return
+            }
+            return
+        }
+        // tray shop — tap a card to buy the piece
+        if (overlay == Overlay.SHOP) {
+            for ((k, r) in shopCardRects) if (r.contains(x, y)) {
+                if (engine.gambitBuy(k)) {
+                    Audio.play("coin")
+                    Haptic.tick()
+                    if (!engine.gambitOpen) {
+                        overlay = Overlay.NONE
+                        for (j in 0..2) trayPop[j] = -j * 0.12f
+                    }
+                } else { Audio.play("invalid"); Haptic.error() }
+                return
+            }
+            return
+        }
         // buttons are hit-tested in overlayButtons
         for (b in overlayButtons) {
             if (b.contains(x, y)) { b.pressT = 1f; b.tap(); return }
         }
-        // click outside quit/pause/powers dialog dismisses
+        // click outside quit/pause/powers dialog dismisses (perk/shop must be answered)
         if ((overlay == Overlay.PAUSE || overlay == Overlay.POWERS) && !dialogRect.contains(x, y)) { overlay = Overlay.NONE }
     }
 
@@ -660,7 +787,29 @@ class GameScene(
         Missions.track(MissionType.CELLS_TOTAL, lastPlacedCells.size)
         if (engine.trayEmpty()) {
             for (k in 0..2) trayPop[k] = -k * 0.12f // staggered spawn pop
-            Audio.play("spawn")
+            if (!engine.gambitOpen) Audio.play("spawn")
+        }
+        // gravity/merge chain — celebrate a multi-collapse
+        if (engine.lastCascade >= 2) {
+            cascadeT = 1.4f
+            boardShake = maxOf(boardShake, 0.1f + engine.lastCascade * 0.05f)
+        }
+        // VERSUS — big clears throw a junk row onto the bot's board
+        if (engine.mode == Mode.VERSUS && res.lines >= 2) {
+            bot?.let { b ->
+                if (!b.takeJunkRow(res.lines - 1) || b.gameOver) {
+                    if (!versusResultShown) { versusResultShown = true; engine.forceWin() }
+                }
+            }
+        }
+        // Ghost Rivals — crossing the ghost's pace fires a one-time cheer
+        ghostCurve?.let { gv ->
+            val idx = engine.scoreCurve.size - 1
+            if (idx in gv.indices && engine.score > gv[idx] && !ghostPassed) {
+                ghostPassed = true
+                addFloat(boardRect.centerX(), boardRect.top + boardRect.height() * 0.22f, s(R.string.ghost_passed), 0xFF9DE2FF.toInt(), D.sp(18f))
+                Audio.play("reward", 1.25f)
+            }
         }
         refreshDanger()
         saveRun()
@@ -708,6 +857,13 @@ class GameScene(
 
     private fun endRound() {
         commitStats()
+        // campaign node conquered → unlock the next node
+        if (engine.goalMet && campaignNode >= 0) {
+            Save.campaignCleared = maxOf(Save.campaignCleared, campaignNode + 1)
+        }
+        if (engine.goalMet && engine.mode == Mode.MOSAIC && mosaicIndex >= 0) {
+            if (!Save.mosaicIsDone(mosaicIndex)) { Save.markMosaicDone(mosaicIndex); awardCoins += 80 }
+        }
         overlay = when {
             engine.goalMet && engine.mode != Mode.CLASSIC -> {
                 shownStars = when (engine.mode) {
@@ -717,6 +873,7 @@ class GameScene(
                         Save.setStars(levelIndex, st)
                         st
                     }
+                    Mode.VERSUS -> if (engine.goalMet) 3 else 0
                     Mode.PUZZLE -> {
                         if (levelIndex >= Puzzles.COUNT) {
                             // weekly puzzle: no stars — one shard payout per week
@@ -773,7 +930,7 @@ class GameScene(
         if (engine.mode == Mode.ZEN && engine.score > Save.bestZen) Save.bestZen = engine.score
         if (engine.mode == Mode.DAILY && engine.score > Save.bestDailyScore) Save.bestDailyScore = engine.score
         Save.playSeconds += (System.currentTimeMillis() - sessionStart) / 1000
-        Save.recordRun(engine.mode.name, engine.score)
+        Save.recordRun(engine.mode.name, engine.score, engine.scoreCurve)
         Missions.track(MissionType.PLAY_GAMES, 1)
         Missions.track(MissionType.SCORE_GAME, engine.score)
         celebrateAchievements()
@@ -961,6 +1118,7 @@ class GameScene(
         }
         renderHud(c)
         renderBoard(c)
+        renderBotBoard(c)
         renderTimerChip(c)
         renderPowerBar(c)
         renderTray(c)
@@ -1048,8 +1206,17 @@ class GameScene(
             Mode.PUZZLE -> if (levelIndex >= Puzzles.COUNT)
                 "${s(R.string.weekly_puzzle)} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
             else "${s(R.string.menu_puzzle)} ${levelIndex + 1} • ${goalLabel()} • ${s(R.string.moves_left)} ${engine.movesLeft}"
+            Mode.AVALANCHE -> "${s(R.string.mode_avalanche)} • ${s(R.string.avalanche_in, engine.avalancheIn)}"
+            Mode.MERGE -> s(R.string.mode_merge)
+            Mode.GRAVITY -> s(R.string.mode_gravity)
+            Mode.EXPEDITION -> "${s(R.string.mode_expedition)} • ${s(R.string.perk_at, engine.expeditionNextAt)}"
+            Mode.GAMBIT -> s(R.string.mode_gambit)
+            Mode.VERSUS -> "${s(R.string.mode_versus)} • ${s(R.string.vs_bot, bot?.score ?: 0)}"
+            Mode.BOSS -> "${s(R.string.mode_boss)} ${engine.bossPhase}/${engine.bossPhases} • ${s(R.string.stones_left, engine.board.stoneCount())} • ${s(R.string.moves_left)} ${engine.movesLeft}"
+            Mode.MOSAIC -> "${s(R.string.mode_mosaic)} • ${s(R.string.stones_left, engine.board.stoneCount())} • ${s(R.string.moves_left)} ${engine.movesLeft}"
         }
         D.textFit(c, sub, w / 2f, hudTop + D.sp(22f) + D.sp(15f), D.sp(11f), w - D.dp(150f), D.withAlpha(D.color(theme.textPrimary), 190), bold = false)
+        renderGhostChip(c)
         if (coinPill == null) coinPill = com.fareza.blokku.ui.CoinPill(w - D.dp(106f), hudTop - D.dp(4f)) { onCoinsTap() }
         coinPill?.render(c)
         // meter — taller pill with gradient fill
@@ -1071,6 +1238,42 @@ class GameScene(
             val fcol = 0xFFFFB300.toInt()
             D.gradientRect(c, mr.left, mr.top, mr.right, mr.bottom, D.withAlpha(fcol, (235 * fp).toInt()), D.withAlpha(D.darken(fcol, 0.2f), (255 * fp).toInt()), mr.height() / 2)
             D.text(c, "×2 ${engine.feverT.toInt() + 1}", mr.centerX(), mr.centerY() + D.sp(4.5f), D.sp(11f), Color.WHITE)
+        }
+    }
+
+    /** Ghost Rivals chip: live pace delta vs your #1 run for this mode. */
+    private fun renderGhostChip(c: Canvas) {
+        val gv = ghostCurve ?: return
+        val idx = (engine.scoreCurve.size - 1).coerceIn(0, gv.size - 1)
+        val delta = engine.score - gv[idx]
+        val label = if (delta >= 0) "+${delta}" else "$delta"
+        val col = if (delta >= 0) 0xFF7BE495.toInt() else 0xFF9DE2FF.toInt()
+        val tw = D.textWidth(label, D.sp(9.5f)) + D.dp(26f)
+        val px = meterRect.left - tw - D.dp(8f); val py = meterRect.top - D.dp(1f)
+        D.rect(c, px, py, px + tw, py + D.dp(14f), D.withAlpha(Color.BLACK, 90), D.dp(7f))
+        D.rectStroke(c, px + 0.6f, py + 0.6f, px + tw - 0.6f, py + D.dp(14f) - 0.6f, D.withAlpha(col, 160), 1f, D.dp(7f))
+        Glyph.draw(c, "ghost", RectF(px + D.dp(5f), py + D.dp(3f), px + D.dp(5f) + D.dp(8f), py + D.dp(3f) + D.dp(8f)), col)
+        D.text(c, label, px + D.dp(16f) + (tw - D.dp(16f)) / 2f, py + D.dp(10.5f), D.sp(9.5f), col)
+    }
+
+    /** Versus: live view of the AI opponent's board, floating inside the
+     *  board's top-right corner (PiP — drawn after the board). */
+    private fun renderBotBoard(c: Canvas) {
+        val b = bot ?: return
+        if (overlay != Overlay.NONE) return
+        val bs = D.dp(56f)
+        val labH = D.dp(12f)
+        botRect = RectF(boardRect.right - bs - D.dp(6f), boardRect.top + D.dp(6f), boardRect.right - D.dp(6f), boardRect.top + D.dp(6f) + labH + bs)
+        D.card(c, botRect.left - D.dp(3f), botRect.top - D.dp(3f), botRect.right + D.dp(3f), botRect.bottom + D.dp(3f), D.withAlpha(D.color(theme.boardBg), 232), D.dp(8f), elevated = false)
+        D.labelText(c, s(R.string.vs_bot_label) + "  " + b.score, botRect.centerX(), botRect.top + labH - D.dp(2f), D.sp(7.5f), D.withAlpha(0xFFFF5D73.toInt(), 230))
+        val cell2 = bs / 9f
+        val gy = botRect.top + labH
+        for (r in 0 until 9) for (cc in 0 until 9) {
+            val v = b.board.cells[r * 9 + cc]
+            val l = botRect.left + cc * cell2
+            val t = gy + r * cell2
+            if (v == 0) D.rect(c, l + 0.4f, t + 0.4f, l + cell2 - 0.4f, t + cell2 - 0.4f, D.withAlpha(D.color(theme.cellEmpty), 70), cell2 * 0.2f)
+            else D.rect(c, l + 0.4f, t + 0.4f, l + cell2 - 0.4f, t + cell2 - 0.4f, cellColor(v), cell2 * 0.2f)
         }
     }
 
@@ -1158,6 +1361,19 @@ class GameScene(
             }
         }
 
+        // MOSAIC — the picture appears wherever a stone has been cleared
+        val art = mosaicArt
+        if (art != null) {
+            for (i in art.indices) {
+                val ac = art[i]
+                if (ac == 0 || engine.board.stones[i]) continue
+                val r = i / 9; val cc = i % 9
+                val l = boardRect.left + cc * cell + cell * 0.10f
+                val t = boardRect.top + r * cell + cell * 0.10f
+                D.rect(c, l, t, l + cell * 0.8f, t + cell * 0.8f, D.withAlpha(ac, if (engine.board.cells[i] == 0) 240 else 90), cell * 0.14f)
+            }
+        }
+
         // bomb hover preview
         if (bombArmed && bombHover >= 0) {
             val br = bombHover / 9; val bc = bombHover % 9
@@ -1214,6 +1430,7 @@ class GameScene(
                 if (engine.board.gems[idx]) drawGem(c, l + cell * 0.43f, t + cell * 0.43f, cell * 0.26f)
                 if (engine.board.bombs[idx]) drawBombCell(c, l + cell * 0.43f, t + cell * 0.43f, cell * 0.34f)
                 if (engine.board.mults[idx]) drawMultCell(c, l + cell * 0.43f, t + cell * 0.43f, cell * 0.34f)
+                if (engine.board.nums[idx] > 0) drawNum(c, l + cell * 0.43f, t + cell * 0.43f, cell * 0.4f, engine.board.nums[idx])
             }
         }
 
@@ -1398,6 +1615,7 @@ class GameScene(
                 if (pc == engine.trayGem[i]) drawGem(c, l + pc0 * 0.45f * popK, t + pc0 * 0.45f * popK, pc0 * 0.24f)
                 if (pc == engine.trayBomb[i]) drawBombCell(c, l + pc0 * 0.45f * popK, t + pc0 * 0.45f * popK, pc0 * 0.36f)
                 if (pc == engine.trayMult[i]) drawMultCell(c, l + pc0 * 0.45f * popK, t + pc0 * 0.45f * popK, pc0 * 0.36f)
+                if (pc == engine.trayNum[i]) drawNum(c, l + pc0 * 0.45f * popK, t + pc0 * 0.45f * popK, pc0 * 0.42f, 2)
             }
             if (rotateArmed && fitsAny) {
                 D.rectStroke(c, slotRect.left, slotRect.top, slotRect.right, slotRect.bottom, accent(), D.dp(2f), D.dp(14f))
@@ -1455,8 +1673,23 @@ class GameScene(
             if (pc == engine.trayGem[dragIndex]) drawGem(c, l + cur * 0.45f, t + cur * 0.45f, cur * 0.24f)
             if (pc == engine.trayBomb[dragIndex]) drawBombCell(c, l + cur * 0.45f, t + cur * 0.45f, cur * 0.36f)
             if (pc == engine.trayMult[dragIndex]) drawMultCell(c, l + cur * 0.45f, t + cur * 0.45f, cur * 0.36f)
+            if (pc == engine.trayNum[dragIndex]) drawNum(c, l + cur * 0.45f, t + cur * 0.45f, cur * 0.42f, 2)
         }
         c.restore()
+    }
+
+    /** Numbered cell marker for Merge mode — a bold 2048-style value chip. */
+    private fun drawNum(c: Canvas, cx: Float, cy: Float, r: Float, v: Int) {
+        val col = when {
+            v >= 128 -> 0xFFBA8DF5.toInt()
+            v >= 32 -> 0xFFFF8A3C.toInt()
+            v >= 8 -> 0xFFFFD166.toInt()
+            else -> 0xFF5AC8FA.toInt()
+        }
+        D.circle(c, cx, cy, r * 0.66f, D.withAlpha(0xFF1C1626.toInt(), 220))
+        D.circle(c, cx, cy, r * 0.66f, D.withAlpha(col, 46))
+        D.rectStroke(c, cx - r * 0.66f, cy - r * 0.66f, cx + r * 0.66f, cy + r * 0.66f, D.withAlpha(col, 170), 1.4f, r * 0.66f)
+        D.textFit(c, "$v", cx, cy + r * 0.3f, r * 0.58f, r * 1.2f, col)
     }
 
     /** Coin payout feedback: pill bounce + gold sparkles flying over it. */
@@ -1498,6 +1731,20 @@ class GameScene(
             c.scale(Ease.outBack(appear), Ease.outBack(appear), w / 2f, boardRect.top + boardRect.height() * 0.56f)
             D.textFit(c, s(R.string.perfect_banner), w / 2f, boardRect.top + boardRect.height() * 0.56f, D.sp(30f), w - D.dp(48f), 0xFFFFD75E.toInt(), alpha = (255 * alpha).toInt())
             c.restore()
+        }
+        // boss phase banner — "PHASE 2/3" slams in when a new wave lands
+        if (bossBannerT > 0f) {
+            val appear = ((1.8f - bossBannerT) / 0.3f).coerceIn(0f, 1f)
+            val alpha = (bossBannerT / 0.5f).coerceIn(0f, 1f)
+            c.save()
+            c.scale(Ease.outBack(appear), Ease.outBack(appear), w / 2f, boardRect.top + boardRect.height() * 0.35f)
+            D.textFit(c, s(R.string.boss_phase, engine.bossPhase, engine.bossPhases), w / 2f, boardRect.top + boardRect.height() * 0.35f, D.sp(28f), w - D.dp(40f), 0xFFBA8DF5.toInt(), alpha = (255 * alpha).toInt())
+            c.restore()
+        }
+        // gravity cascade tag — "CASCADE ×N" flashes after chain collapses
+        if (cascadeT > 0f) {
+            val alpha = (cascadeT / 0.5f).coerceIn(0f, 1f)
+            D.textFit(c, s(R.string.cascade_x, engine.lastCascade), w / 2f, boardRect.bottom + D.dp(2f), D.sp(13f), w - D.dp(48f), accent(), alpha = (255 * alpha).toInt())
         }
         if (recordBannerT > 0f) {
             val appear = ((1.7f - recordBannerT) / 0.3f).coerceIn(0f, 1f)
@@ -1547,6 +1794,8 @@ class GameScene(
             Overlay.GAMEOVER -> D.dp(368f)
             Overlay.LEVEL_COMPLETE -> D.dp(320f)
             Overlay.POWERS -> D.dp(500f)
+            Overlay.PERK -> D.dp(300f)
+            Overlay.SHOP -> D.dp(240f)
             else -> D.dp(240f)
         }
         val dl = (w - dw) / 2f
@@ -1566,9 +1815,95 @@ class GameScene(
             Overlay.LEVEL_COMPLETE -> renderLevelCompleteOverlay(c)
             Overlay.QUIT_CONFIRM -> renderQuitOverlay(c)
             Overlay.POWERS -> renderPowersOverlay(c)
+            Overlay.PERK -> renderPerkOverlay(c)
+            Overlay.SHOP -> renderShopOverlay(c)
             Overlay.NONE -> {}
         }
         for (b in overlayButtons) b.render(c)
+    }
+
+    // ---- expedition perk draft ----
+    private val perkNameRes = intArrayOf(
+        R.string.perk_fever_name, R.string.perk_grace_name, R.string.perk_color_name,
+        R.string.perk_gem_name, R.string.perk_mult_name, R.string.perk_bomb_name,
+        R.string.perk_score_name, R.string.perk_revive_name,
+    )
+    private val perkDescRes = intArrayOf(
+        R.string.perk_fever_desc, R.string.perk_grace_desc, R.string.perk_color_desc,
+        R.string.perk_gem_desc, R.string.perk_mult_desc, R.string.perk_bomb_desc,
+        R.string.perk_score_desc, R.string.perk_revive_desc,
+    )
+    private val perkTint = intArrayOf(
+        0xFFFFB300.toInt(), 0xFF62D97B.toInt(), 0xFF5AC8FA.toInt(), 0xFF7DF9FF.toInt(),
+        0xFFFFE066.toInt(), 0xFFFF8A3C.toInt(), 0xFFBA8DF5.toInt(), 0xFFFF70A6.toInt(),
+    )
+
+    // perk & shop cards are hit-tested manually (rect lists rebuilt per frame)
+    private val perkCardRects = ArrayList<Pair<Int, RectF>>()
+    private val shopCardRects = ArrayList<Pair<Int, RectF>>()
+
+    private fun renderPerkOverlay(c: Canvas) {
+        perkCardRects.clear()
+        overlayTitle(c, s(R.string.perk_choose), dialogRect.top + D.dp(40f), D.sp(20f))
+        val bw = dialogRect.width() - D.dp(40f)
+        val bx = dialogRect.left + D.dp(20f)
+        var by = dialogRect.top + D.dp(62f)
+        for (pid in perkOffer) {
+            val tint = perkTint[pid]
+            val r = RectF(bx, by, bx + bw, by + D.dp(56f))
+            perkCardRects.add(pid to r)
+            D.card(c, r.left, r.top, r.right, r.bottom, D.withAlpha(tint, 60), D.dp(14f))
+            D.rectStroke(c, r.left + 0.8f, r.top + 0.8f, r.right - 0.8f, r.bottom - 0.8f, D.withAlpha(tint, 190), 1.4f, D.dp(14f))
+            // card content: color chip + name + desc
+            D.circle(c, r.left + D.dp(26f), r.centerY(), D.dp(13f), D.withAlpha(tint, 200))
+            Glyph.draw(c, "star", RectF(r.left + D.dp(26f) - D.dp(8f), r.centerY() - D.dp(8f), r.left + D.dp(26f) + D.dp(8f), r.centerY() + D.dp(8f)), Color.WHITE)
+            D.textFit(c, s(perkNameRes[pid]), r.left + D.dp(48f), r.top + D.dp(21f), D.sp(14f), r.width() - D.dp(60f), D.color(theme.textPrimary), align = Paint.Align.LEFT)
+            D.textFit(c, s(perkDescRes[pid]), r.left + D.dp(48f), r.top + D.dp(39f), D.sp(10.5f), r.width() - D.dp(60f), D.withAlpha(D.color(theme.textPrimary), 200), align = Paint.Align.LEFT, bold = false)
+            by += D.dp(66f)
+        }
+    }
+
+    // ---- gambit tray shop ----
+    private fun renderShopOverlay(c: Canvas) {
+        shopCardRects.clear()
+        overlayTitle(c, s(R.string.shop_title), dialogRect.top + D.dp(38f), D.sp(20f))
+        D.text(c, s(R.string.shop_hint, 3 - engine.gambitPicks), dialogRect.centerX(), dialogRect.top + D.dp(58f), D.sp(11f), D.withAlpha(D.color(theme.textPrimary), 170), bold = false)
+        // five shop cards in one row inside the dialog
+        val n = 5
+        val pad = D.dp(10f)
+        val cw = (dialogRect.width() - pad * (n + 1)) / n
+        val ch = D.dp(96f)
+        var cx = dialogRect.left + pad
+        val cy = dialogRect.top + D.dp(72f)
+        for (k in 0 until n) {
+            val p = engine.gambitShop[k]
+            val card = RectF(cx, cy, cx + cw, cy + ch)
+            if (p == null) {
+                D.insetCell(c, card.left, card.top, card.right, card.bottom, D.withAlpha(D.color(theme.cellEmpty), 80), D.dp(12f))
+                cx += cw + pad
+                continue
+            }
+            shopCardRects.add(k to card)
+            val cost = engine.gambitCost[k]
+            val afford = engine.score >= cost
+            D.card(c, card.left, card.top, card.right, card.bottom, D.color(theme.boardBg), D.dp(12f), elevated = afford)
+            D.rectStroke(c, card.left + 0.8f, card.top + 0.8f, card.right - 0.8f, card.bottom - 0.8f, D.withAlpha(if (afford) 0xFFFFD166.toInt() else Color.WHITE, if (afford) 130 else 30), 1.2f, D.dp(12f))
+            if (!afford) D.rect(c, card.left, card.top, card.right, card.bottom, D.withAlpha(Color.BLACK, 120), D.dp(12f))
+            // mini piece
+            val pc = minOf(cw / (p.cols + 0.6f), D.dp(38f) / p.rows)
+            val pw = p.cols * pc
+            for (pcell in p.cells) {
+                val pr = pcell shr 4; val pcc = pcell and 15
+                val l = card.centerX() - pw / 2 + pcc * pc
+                val t = card.top + D.dp(8f) + pr * pc
+                D.blockCell(c, l, t, l + pc * 0.88f, t + pc * 0.88f, cellColor(p.colorIndex + 1), pc * 0.18f, if (afford) 255 else 130)
+            }
+            // cost tag
+            val cl = if (cost == 0) s(R.string.free_label) else "$cost"
+            val cc = if (cost == 0) 0xFF62D97B.toInt() else if (afford) 0xFFFFD166.toInt() else 0xFFFF5D73.toInt()
+            D.textFit(c, cl, card.centerX(), card.bottom - D.dp(12f), D.sp(12f), cw - D.dp(4f), cc)
+            cx += cw + pad
+        }
     }
 
     private fun overlayBtn(l: Float, t: Float, r: Float, b: Float, label: String, bg: Int, textScale: Float = 1f, onTap: () -> Unit): UiButton {
@@ -1655,7 +1990,7 @@ class GameScene(
 
     private fun renderGameOverOverlay(c: Canvas) {
         val cx = dialogRect.centerX()
-        overlayTitle(c, s(R.string.game_over), dialogRect.top + D.dp(36f), D.sp(22f))
+        overlayTitle(c, s(if (engine.mode == Mode.VERSUS) R.string.vs_defeat else R.string.game_over), dialogRect.top + D.dp(36f), D.sp(22f))
         val isBest = when (engine.mode) {
             Mode.CLASSIC -> engine.score >= Save.bestClassic && engine.score > 0
             Mode.RUSH -> engine.score >= Save.bestRush && engine.score > 0
@@ -1702,7 +2037,9 @@ class GameScene(
         val bx = dialogRect.left + D.dp(24f)
         var by = dialogRect.top + D.dp(196f)
         if (!revived && engine.mode != Mode.PUZZLE) {
-            val label = if (!Save.adsRemoved && Ads.rewardedReady) s(R.string.watch_ad_continue) else "${s(R.string.continue_game)} — 50"
+            val label = if (engine.perkFreeRevive) s(R.string.free_revive)
+            else if (!Save.adsRemoved && Ads.rewardedReady) s(R.string.watch_ad_continue)
+            else "${s(R.string.continue_game)} — 50"
             val rb = overlayBtn(bx, by, bx + bw, by + D.dp(46f), label, 0xFF62D97B.toInt()) {
                 revive()
             }
@@ -1728,6 +2065,9 @@ class GameScene(
         val title = when (engine.mode) {
             Mode.DAILY -> s(R.string.daily_complete)
             Mode.PUZZLE -> s(R.string.puzzle_complete)
+            Mode.VERSUS -> s(R.string.vs_victory)
+            Mode.BOSS -> s(R.string.boss_down)
+            Mode.MOSAIC -> s(R.string.mosaic_done)
             else -> s(R.string.level_complete)
         }
         overlayTitle(c, title, dialogRect.top + D.dp(42f), D.sp(21f))
@@ -1794,12 +2134,26 @@ class GameScene(
             Mode.RUSH -> GameScene(GameEngine.rush())
             Mode.PUZZLE -> GameScene(GameEngine.puzzle(
                 if (levelIndex >= Puzzles.COUNT) Puzzles.weeklyDef(Save.weekSeed()) else Puzzles.get(levelIndex)), levelIndex)
+            Mode.GRAVITY -> GameScene(GameEngine.gravity(), campaignNode = campaignNode)
+            Mode.AVALANCHE -> GameScene(GameEngine.avalanche(), campaignNode = campaignNode)
+            Mode.MERGE -> GameScene(GameEngine.merge(), campaignNode = campaignNode)
+            Mode.EXPEDITION -> GameScene(GameEngine.expedition(), campaignNode = campaignNode)
+            Mode.GAMBIT -> GameScene(GameEngine.gambit(), campaignNode = campaignNode)
+            Mode.VERSUS -> GameScene(GameEngine.versus(), campaignNode = campaignNode)
+            Mode.BOSS -> GameScene(GameEngine.boss(if (bossArg > 0) bossArg else 3), campaignNode = campaignNode, bossArg = bossArg)
+            Mode.MOSAIC -> GameScene(GameEngine.mosaic(if (mosaicIndex >= 0) mosaicIndex else 0), campaignNode = campaignNode, mosaicIndex = mosaicIndex)
         }
         scene().swapTo(fresh)
         Ads.maybeInterstitial(host.context)
     }
 
     private fun revive() {
+        // Second Wind perk grants one free revive in Expedition
+        if (engine.perkFreeRevive) {
+            engine.perkFreeRevive = false
+            doRevive()
+            return
+        }
         // rewarded ad path first; fall back to coins
         if (!Save.adsRemoved && Ads.rewardedReady) {
             Ads.showRewarded(host.context) { ok ->
@@ -1849,6 +2203,8 @@ class GameScene(
     }
 
     override fun onBack(): Boolean {
+        // perk draft & tray shop must be answered — they don't dismiss
+        if (overlay == Overlay.PERK || overlay == Overlay.SHOP) return true
         if (overlay != Overlay.NONE) { overlay = Overlay.NONE; return true }
         if (dragIndex >= 0) { dragIndex = -1; return true }
         pause()

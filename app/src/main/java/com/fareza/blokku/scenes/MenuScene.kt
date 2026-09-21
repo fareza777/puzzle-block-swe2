@@ -119,17 +119,18 @@ class MenuScene : BaseScene() {
         buttons.add(lvl); buttons.add(dailyBtn)
         y += D.dp(74f)
 
-        // modes row of three — Zen | Rush | Puzzle
-        val third = (bw - D.dp(24f)) / 3f
+        // modes row of four — Zen | Rush | Puzzle | Arcade (all extra modes)
+        val third = (bw - D.dp(36f)) / 4f
         var mx = bx
         for ((res, ic, sub, col, act) in listOf(
             Quad(R.string.menu_zen, "g:zen", R.string.menu_zen_sub, 0xFF2DD4BF.toInt()) { scene().push(GameScene(GameEngine.zen())) },
             Quad(R.string.menu_rush, "g:rush", R.string.menu_rush_sub, 0xFFFF5D73.toInt()) { scene().push(GameScene(GameEngine.rush())) },
             Quad(R.string.menu_puzzle, "g:puzzle", R.string.menu_puzzle_sub, 0xFFBA8DF5.toInt()) { scene().push(PuzzleSelectScene()) },
+            Quad(R.string.menu_arcade, "g:star", R.string.menu_arcade_sub, 0xFF8458FF.toInt()) { scene().push(ModeSelectScene()) },
         )) {
             val b = UiButton(RectF(mx, y, mx + third, y + D.dp(60f)), s(res), icon = ic, bg = col, fg = Color.WHITE, sublabel = s(sub), onTap = {
                 Audio.play("click"); Haptic.tick(); act()
-            }, textScale = 0.85f)
+            }, textScale = 0.78f)
             b.appearDelay = 0.16f + buttons.size * 0.02f
             b.appear.t = -b.appearDelay
             buttons.add(b)
